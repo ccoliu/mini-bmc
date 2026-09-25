@@ -3,6 +3,7 @@
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["redfishd"]
 addopts = "-ra --strict-markers"
 
 [tool.ruff]
@@ -12,3 +13,8 @@ line-length = 100
 [tool.ruff.lint]
 # Pinned explicitly so results do not drift across ruff versions.
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "PT", "RUF"]
+
+[tool.pyrefly]
+project-includes = ["tests"]
+python-interpreter-path = ".venv/bin/python"
+search-path = ["redfishd", "tests"]

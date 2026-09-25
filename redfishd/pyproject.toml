@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "redfishd"
+version = "0.1.0"
+description = "Subset of the DMTF Redfish API on top of the mini-bmc sensor daemon"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn==0.53.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx2==2.13.1",      # FastAPI TestClient (Starlette >= 1.7)
+    "jsonschema==4.26.0",  # DMTF schema validation in tests
+    "pytest==8.4.2",
+    "ruff==0.13.3",
+]
+
+[tool.setuptools]
+packages = ["app", "app.routers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+# Single source of truth for the lint rule set lives in the repo root.
+extend = "../pyproject.toml"
+
+[tool.pyrefly]
+python-interpreter-path = "../.venv/bin/python"
+search-path = [".", "tests"]
