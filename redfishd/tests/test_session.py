@@ -70,6 +70,7 @@ def test_login_body_validation(
     assert info["MessageId"] == f"Base.1.24.{key}"
     assert info["MessageArgs"] == args
 
+
 def test_session_service_and_collection(anon_client: TestClient, client: TestClient) -> None:
     service = client.get("/redfish/v1/SessionService").json()
     assert service["SessionTimeout"] == 1800
