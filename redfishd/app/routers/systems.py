@@ -3,10 +3,11 @@
 import json
 from typing import Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 
+from ..auth import require_auth
 from ..errors import RedfishError
-from ..odata import ROOT, link, resource, collection
+from ..odata import ROOT, collection, link, resource
 from ..power import RESET_RESULT, PowerController
 from .chassis import CHASSIS
 
@@ -15,7 +16,7 @@ SYSTEM = f"{ROOT}/Systems/{SYSTEM_ID}"
 ACTION = "ComputerSystem.Reset"
 RESET_TARGET = f"{SYSTEM}/Actions/{ACTION}"
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 def power(request: Request) -> PowerController:
@@ -53,6 +54,7 @@ def system_collection() -> dict[str, Any]:
     return collection(
         "ComputerSystemCollection", f"{ROOT}/Systems", "Computer System Collection", [SYSTEM]
     )
+
 
 @router.get(f"{ROOT}/Systems/{{system_id}}")
 def system(system_id: str, request: Request) -> dict[str, Any]:

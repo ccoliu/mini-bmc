@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from ..auth import require_auth
 from ..errors import RedfishError
 from ..odata import ROOT, collection, link, resource
 from ..sensor_catalog import CATALOG
@@ -24,7 +25,7 @@ STATUS_MAP: dict[str, dict[str, str]] = {
 }
 SEVERITY = {"OK": 0, "Warning": 1, "Critical": 2}
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 def sensord(request: Request) -> SensordClient:

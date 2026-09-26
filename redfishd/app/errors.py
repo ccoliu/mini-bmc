@@ -49,6 +49,10 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "There is no valid session established with the implementation.",
         "Critical",
     ),
+    "PropertyValueTypeError": (
+        "The value '%1' for the property '%2' is not a type that the property can accept.",
+        "Warning",
+    ),
     "PropertyMissing": (
         "The property '%1' is a required property and must be included in the request.",
         "Warning",
@@ -98,6 +102,7 @@ class RedfishError(Exception):
         self.status = status
         self.key = key
         self.args_ = args
+        self.headers = headers
 
 
 def error_body(key: str, *args: str) -> dict[str, Any]:
@@ -122,7 +127,7 @@ def install(app: FastAPI) -> None:
 
     @app.exception_handler(RedfishError)
     async def _redfish(_: Request, exc: RedfishError) -> JSONResponse:
-        return error_response(exc.status, exc.key, *exc.args_)
+        return error_response(exc.status, exc.key, *exc.args_, headers=exc.headers)
 
     @app.exception_handler(SensordUnavailable)
     async def _sensord_down(_: Request, exc: SensordUnavailable) -> JSONResponse:

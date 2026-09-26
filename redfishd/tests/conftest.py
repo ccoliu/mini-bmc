@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -56,8 +59,25 @@ def fake_sensord() -> FakeSensord:
     return FakeSensord()
 
 
+def basic_auth(username: str, password: str) -> dict[str, str]:
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
+
+
 @pytest.fixture
-def client(settings: Settings, fake_sensord: FakeSensord) -> TestClient:
+def app(settings: Settings, fake_sensord: FakeSensord) -> FastAPI:
     app = create_app(settings)
     app.state.sensord = fake_sensord
+    return app
+
+
+@pytest.fixture
+def client(app: FastAPI, settings: Settings) -> TestClient:
+    """Sends valid HTTP Basic credentials on every request."""
+    return TestClient(app, headers=basic_auth(settings.username, settings.password))
+
+
+@pytest.fixture
+def anon_client(app: FastAPI) -> TestClient:
+    """Same app, no credentials."""
     return TestClient(app)
