@@ -43,7 +43,7 @@ mini-bmc/
 │   └── Dockerfile
 ├── tests/                # integration + conformance tests against a real sensord
 │   └── redfish_schemas/  # vendored DMTF JSON schemas + vendor.py to refresh them
-├── scripts/smoke_test.sh # curl checks against a running stack
+├── scripts/              # smoke_test.sh (curl checks), sensordctl.sh (raw sensord requests)
 ├── docker-compose.yml
 ├── .github/workflows/ci.yml
 └── CLAUDE.md
