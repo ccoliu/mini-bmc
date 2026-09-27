@@ -7,7 +7,7 @@ sanitizers, coverage, static analysis and conformance tests. No hardware require
 | Component | Status |
 |---|---|
 | `sensord` — simulated sensors + fault injection over a Unix socket (C11) | done |
-| `redfishd` — Redfish API (Python / FastAPI) | planned |
+| `redfishd` — Redfish API (Python / FastAPI), validated against DMTF schemas | MVP done |
 
 ## Quick start (Linux / WSL2)
 
@@ -15,8 +15,8 @@ sanitizers, coverage, static analysis and conformance tests. No hardware require
 make -C sensord                      # build
 make -C sensord test                 # Unity unit tests
 make -C sensord sanitize             # same, under ASan + UBSan
-pip install -r tests/requirements.txt
-pytest                               # socket-level integration tests
+python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"
+.venv/bin/pytest                     # integration + DMTF conformance tests
 
 ./sensord/build/sensord -s /tmp/sensord.sock &
 printf '{"cmd":"read_all"}\n' | nc -U -q1 /tmp/sensord.sock

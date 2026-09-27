@@ -63,6 +63,38 @@ jobs:
             sensord/build/asan/sensord
           retention-days: 3
 
+  redfishd:
+    name: redfishd (lint, types, unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: redfishd/pyproject.toml
+
+      # Same layout as local development: the pyrefly config points at .venv.
+      - name: Install (.venv)
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e "./redfishd[dev]"
+
+      - name: Lint (ruff)
+        run: |
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+
+      - name: Type check (pyrefly)
+        run: |
+          .venv/bin/pyrefly check
+          cd redfishd && ../.venv/bin/pyrefly check
+
+      - name: Unit tests
+        working-directory: redfishd
+        run: ../.venv/bin/pytest -v
+
   integration:
     name: integration (pytest)
     needs: sensord
@@ -87,17 +119,35 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: tests/requirements.txt
+          cache-dependency-path: redfishd/pyproject.toml
 
-      - run: pip install -r tests/requirements.txt
-
-      - name: Lint (ruff)
-        if: matrix.variant.name == 'release'
+      - name: Install (.venv)
         run: |
-          ruff check .
-          ruff format --check .
+          python -m venv .venv
+          .venv/bin/pip install -e "./redfishd[dev]"
 
-      - name: pytest against ${{ matrix.variant.name }} build
+      # Includes the DMTF schema conformance crawl against the real daemon.
+      - name: pytest against ${{ matrix.variant.name }} sensord
         env:
           SENSORD_BIN: ${{ matrix.variant.bin }}
-        run: pytest -v
+        run: .venv/bin/pytest -v
+
+  docker:
+    name: docker compose (smoke test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up --build --wait --wait-timeout 120
+
+      - name: Smoke test
+        run: scripts/smoke_test.sh
+
+      - name: Container logs
+        if: always()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

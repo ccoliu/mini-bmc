@@ -33,11 +33,17 @@ mini-bmc/
 │   ├── src/              # daemon source
 │   ├── tests/            # Unity unit tests
 │   ├── third_party/unity # vendored Unity v2.6.0 (unmodified)
-│   └── Makefile
+│   ├── Makefile
+│   └── Dockerfile        # multi-stage: gcc build stage, slim runtime
 ├── redfishd/
-│   ├── app/              # FastAPI application
-│   └── pyproject.toml
-├── tests/                # integration + conformance tests (pytest)
+│   ├── app/              # FastAPI application (import name: app)
+│   │   └── routers/      # one module per Redfish resource family
+│   ├── tests/            # unit tests (FakeSensord, no daemon needed)
+│   ├── pyproject.toml    # runtime + dev dependencies, pinned
+│   └── Dockerfile
+├── tests/                # integration + conformance tests against a real sensord
+│   └── redfish_schemas/  # vendored DMTF JSON schemas + vendor.py to refresh them
+├── scripts/smoke_test.sh # curl checks against a running stack
 ├── docker-compose.yml
 ├── .github/workflows/ci.yml
 └── CLAUDE.md
@@ -91,19 +97,47 @@ Source modules (`sensord/src/`):
 - A client that does not read its responses (send would block) is disconnected rather than
   stalling the daemon.
 
-## redfishd scope
+## redfishd
 
-MVP (week 2):
-- `GET /redfish/v1` (ServiceRoot)
-- `GET /redfish/v1/Chassis/{id}` and thermal readings (temperatures, fans)
-- `GET /redfish/v1/Systems/{id}`, `POST .../Actions/ComputerSystem.Reset`
-- `SessionService` login with `X-Auth-Token`
-- Correct `@odata.id` / `@odata.type` on every resource
+### Setup, build & test
 
-Week 3:
+```
+python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"   # one venv for everything
+(cd redfishd && ../.venv/bin/pytest)       # unit tests
+.venv/bin/pytest                           # integration + DMTF conformance (needs make -C sensord)
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
+.venv/bin/pyrefly check && (cd redfishd && ../.venv/bin/pyrefly check)
+docker compose up --build --wait && scripts/smoke_test.sh              # REDFISH_PORT picks the host port
+```
+
+Modules (`redfishd/app/`): `main.py` (app factory), `config.py` (env settings),
+`odata.py` (pinned @odata.type versions), `errors.py` (Redfish error bodies, Base 1.24
+registry subset), `sensord_client.py`, `sensor_catalog.py` (static Redfish metadata per
+sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, and `routers/`.
+
+### Implemented (Week 2 MVP)
+
+- `GET /redfish`, `GET /redfish/v1/` (ServiceRoot) — the only unauthenticated reads
+- `Chassis/1`, its `Sensors` collection and `Sensor` resources (modern model, not legacy
+  `Thermal`); `HealthRollup` is the worst sensor health, an unreadable sensor counts as Warning
+- `Systems/1` with `ComputerSystem.Reset` (7 ResetTypes, advertised via AllowableValues)
+- `SessionService`: login returns `X-Auth-Token` + `Location`; DELETE logs out; 1800 s idle
+  timeout. HTTP Basic is accepted too. A sent token is never silently replaced by Basic.
+- Every failure is a Redfish error body; sensord unreachable -> 503 + `Retry-After`
+- `/docs`, `/redoc`, `/openapi.json` are disabled (they would be unauthenticated)
+- Responses validated against DMTF schemas from Redfish-Publications **2026.2**
+  (`tests/redfish_schemas/vendor.py` pins the tag and SHA-256)
+
+### Week 3
+
 - `UpdateService` with a simulated firmware update: image checksum verification,
   reject corrupt images, automatic rollback on failure
-- Proper error responses when `sensord` is down or a sensor is faulted
+- DMTF Redfish Service Validator in CI (needs `$metadata` / CSDL, not served yet)
+
+### Known limitations (by design, for now)
+
+Plain HTTP (no TLS); a single account from env vars; no lockout or rate limiting on login;
+sessions live in memory and vanish on restart.
 
 ## Conventions
 
@@ -111,7 +145,11 @@ Week 3:
 - C: C11, `-Wall -Wextra -Werror`; unit tests with Unity; coverage with gcov/lcov;
   static analysis with cppcheck; run tests under AddressSanitizer and UBSan in CI.
 - Python: 3.11+, FastAPI, pytest, ruff with an explicitly pinned rule set in
-  `pyproject.toml` (`[tool.ruff.lint] select = [...]`) so results do not drift across ruff versions.
+  `pyproject.toml` (`[tool.ruff.lint] select = [...]`) so results do not drift across ruff versions;
+  pyrefly for types (configs in both `pyproject.toml` files; each resolves its own `conftest`).
+- Redfish responses are plain dicts; correctness is checked against the official schemas,
+  not against our own models. Unit tests still pin values schemas cannot (e.g. UCUM units).
+- FastAPI dependencies that touch shared state are `async def` (plain `def` runs in a thread pool).
 - Every feature lands together with its tests. CI must stay green on `main`.
 - Validate Redfish responses against the official DMTF JSON schemas.
 - Do not name anything `openbmc`; that is an unrelated Linux Foundation project.
@@ -120,7 +158,7 @@ Week 3:
 
 - [x] **Week 0** — GitHub Actions CI added to the author's existing repos (Coworkify, Codoctopus); both green
 - [x] **Week 1** — `sensord`: C daemon, socket protocol above, Unity tests, Makefile, coverage, cppcheck, sanitizers, CI
-- [ ] **Week 2** — `redfishd` MVP endpoints, pytest suite, schema validation, Docker Compose, CI → **MVP done**
+- [x] **Week 2** — `redfishd` MVP endpoints, pytest suite, schema validation, Docker Compose, CI → **MVP done**
 - [ ] **Week 3** — firmware update + rollback, fault-injection tests, DMTF Redfish Service Validator in CI
 - [ ] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step
 

@@ -1,0 +1,35 @@
+# The whole stack:  docker compose up --build --wait   then   scripts/smoke_test.sh
+name: mini-bmc
+
+services:
+  sensord:
+    build: ./sensord
+    volumes:
+      - sock:/run/mini-bmc          # the only channel between the two containers
+    network_mode: none              # sensord talks over the Unix socket only
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
+  redfishd:
+    build: ./redfishd
+    environment:
+      REDFISH_USERNAME: ${REDFISH_USERNAME:-admin}
+      # Demo default; set REDFISH_PASSWORD to override.
+      REDFISH_PASSWORD: ${REDFISH_PASSWORD:-admin}
+    volumes:
+      - sock:/run/mini-bmc
+    ports:
+      # Loopback only: plain HTTP with demo credentials. REDFISH_PORT picks the host port.
+      - "127.0.0.1:${REDFISH_PORT:-8000}:8000"
+    depends_on:
+      sensord:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
+volumes:
+  sock: {}
