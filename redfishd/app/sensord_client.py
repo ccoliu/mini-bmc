@@ -14,6 +14,8 @@ from typing import Any
 
 # sensord's longest response (read_all) is well under this.
 MAX_RESPONSE = 64 * 1024
+# Error codes that mean "busy, try again later" rather than "that request was wrong".
+TRANSIENT_ERRORS = frozenset({"too_many_clients"})
 
 
 class SensordError(Exception):
@@ -21,7 +23,8 @@ class SensordError(Exception):
 
 
 class SensordUnavailable(SensordError):
-    """sensord could not be reached, timed out, or answered with something unparseable."""
+    """sensord could not be reached, timed out, answered with something unparseable,
+    or is temporarily refusing work (see TRANSIENT_ERRORS)."""
 
 
 class SensordRequestError(SensordError):
@@ -92,7 +95,10 @@ class SensordClient:
         if not isinstance(resp, dict) or not isinstance(resp.get("ok"), bool):
             raise SensordUnavailable(f"unexpected response shape: {resp!r}")
         if not resp["ok"]:
-            raise SensordRequestError(str(resp.get("error", "unknown")))
+            code = str(resp.get("error", "unknown"))
+            if code in TRANSIENT_ERRORS:
+                raise SensordUnavailable(f"sensord is busy: {code}")
+            raise SensordRequestError(code)
         return resp
 
     async def read_all(self) -> list[SensorReading]:

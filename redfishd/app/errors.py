@@ -8,6 +8,7 @@ Every failure the API returns has the same shape:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -17,12 +18,14 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .odata import TYPES
-from .sensord_client import SensordUnavailable
+from .sensord_client import SensordRequestError, SensordUnavailable
 
 REGISTRY_PREFIX = "Base.1.24"
 
 # Seconds a client should wait before retrying while sensord is unreachable.
 RETRY_AFTER = 5
+
+log = logging.getLogger(__name__)
 
 # The subset of Base.1.24.0 this service emits: key -> (message template, severity).
 MESSAGES: dict[str, tuple[str, str]] = {
@@ -130,13 +133,22 @@ def install(app: FastAPI) -> None:
         return error_response(exc.status, exc.key, *exc.args_, headers=exc.headers)
 
     @app.exception_handler(SensordUnavailable)
-    async def _sensord_down(_: Request, exc: SensordUnavailable) -> JSONResponse:
+    async def _sensord_down(request: Request, exc: SensordUnavailable) -> JSONResponse:
+        # The client gets a generic 503; the log keeps the real reason (busy, down, ...).
+        log.warning("Sensord unavailable on %s: %s", request.url.path, exc)
         return error_response(
             503,
             "ServiceTemporarilyUnavailable",
             str(RETRY_AFTER),
             headers={"Retry-After": str(RETRY_AFTER)},
         )
+
+    @app.exception_handler(SensordRequestError)
+    async def _sensord_rejected(request: Request, exc: SensordRequestError) -> JSONResponse:
+        # Routes map the codes they expect (unknown_sensor -> 404). Anything that gets here
+        # means redfishd sent sensord a request it should not have: a redfishd bug.
+        log.error("Sensord rejected a request on %s: %s", request.url.path, exc)
+        return error_response(500, "InternalError")
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException) -> JSONResponse:

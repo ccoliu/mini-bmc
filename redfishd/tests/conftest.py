@@ -18,6 +18,7 @@ class FakeSensord:
 
     def __init__(self) -> None:
         self.down = False
+        self.error: str | None = None  # make every call fail with this sensord error code
         self.readings = {
             r.name: r
             for r in [
@@ -37,6 +38,8 @@ class FakeSensord:
     def _check(self) -> None:
         if self.down:
             raise SensordUnavailable("fake sensord is down")
+        if self.error is not None:
+            raise SensordRequestError(self.error)
 
     async def read_all(self) -> list[SensorReading]:
         self._check()

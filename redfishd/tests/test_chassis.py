@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 from conftest import FakeSensord
 from fastapi.testclient import TestClient
@@ -119,3 +121,25 @@ def test_collections_do_not_need_sensord(client: TestClient, fake_sensord: FakeS
     fake_sensord.down = True
     assert client.get("/redfish/v1/Chassis").status_code == 200
     assert client.get(f"{CHASSIS}/Sensors").status_code == 200
+
+
+@pytest.mark.parametrize("path", [CHASSIS, f"{CHASSIS}/Sensors/cpu_temp"])
+def test_rejected_request_is_an_explicit_logged_500(
+    client: TestClient, fake_sensord: FakeSensord, caplog: pytest.LogCaptureFixture, path: str
+) -> None:
+    # bad_request from sensord means redfishd sent something wrong: a bug on our side.
+    fake_sensord.error = "bad_request"
+    with caplog.at_level(logging.ERROR, logger="app.errors"):
+        r = client.get(path)
+    assert r.status_code == 500
+    assert r.json()["error"]["code"] == "Base.1.24.InternalError"
+    assert "bad_request" in caplog.text
+
+
+def test_unavailable_reason_is_logged(
+    client: TestClient, fake_sensord: FakeSensord, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake_sensord.down = True
+    with caplog.at_level(logging.WARNING, logger="app.errors"):
+        assert client.get(CHASSIS).status_code == 503
+    assert "fake sensord is down" in caplog.text

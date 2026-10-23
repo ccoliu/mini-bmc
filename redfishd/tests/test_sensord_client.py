@@ -102,6 +102,14 @@ def test_fault_commands_send_expected_requests() -> None:
     ]
 
 
+def test_busy_sensord_is_unavailable_not_a_request_error() -> None:
+    # too_many_clients is transient: it must take the 503 + Retry-After path (issue #1).
+    with pytest.raises(SensordUnavailable, match="too_many_clients"):
+        run_with_fake(
+            lambda _: reply({"ok": False, "error": "too_many_clients"}), lambda c: c.read("x")
+        )
+
+
 def test_error_reply_raises_request_error_with_code() -> None:
     with pytest.raises(SensordRequestError) as exc:
         run_with_fake(
