@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -15,6 +16,8 @@ from ..sensord_client import SensordClient, SensordRequestError, SensorReading
 CHASSIS_ID = "1"
 CHASSIS = f"{ROOT}/Chassis/{CHASSIS_ID}"
 SENSORS = f"{CHASSIS}/Sensors"
+
+log = logging.getLogger(__name__)
 
 # sensord status -> Redfish Status. An unreadable sensor has no meaningful Health.
 STATUS_MAP: dict[str, dict[str, str]] = {
@@ -73,6 +76,12 @@ def chassis_collection() -> dict[str, Any]:
 async def chassis(chassis_id: str, request: Request) -> dict[str, Any]:
     check_chassis_id(chassis_id)
     readings = await sensord(request).read_all()
+    # Roll up only what the API exposes: a Critical sensor that has no Redfish resource
+    # would make the chassis Critical with no visible cause.
+    unknown = sorted(r.name for r in readings if r.name not in CATALOG)
+    if unknown:
+        log.warning("sensord reports sensors missing from CATALOG: %s:", ", ".join(unknown))
+    readings = [r for r in readings if r.name in CATALOG]
     return resource(
         "Chassis",
         CHASSIS,

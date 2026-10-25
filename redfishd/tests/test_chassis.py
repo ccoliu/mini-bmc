@@ -7,6 +7,7 @@ from conftest import FakeSensord
 from fastapi.testclient import TestClient
 
 from app.sensor_catalog import CATALOG
+from app.sensord_client import SensorReading
 
 CHASSIS = "/redfish/v1/Chassis/1"
 
@@ -143,3 +144,16 @@ def test_unavailable_reason_is_logged(
     with caplog.at_level(logging.WARNING, logger="app.errors"):
         assert client.get(CHASSIS).status_code == 503
     assert "fake sensord is down" in caplog.text
+
+
+def test_sensor_missing_from_catalog_is_left_out_of_rollup(
+    client: TestClient, fake_sensord: FakeSensord, caplog: pytest.LogCaptureFixture
+) -> None:
+    # sensord grew a sensor that redfishd does not know about yet (issue #2)
+    fake_sensord.readings["vrm_temp"] = SensorReading("vrm_temp", 120.0, "C", "critical")
+    with caplog.at_level(logging.WARNING, logger="app.routers.chassis"):
+        body = client.get(CHASSIS).json()
+    assert body["Status"]["HealthRollup"] == "OK"
+    assert "vrm_temp" in caplog.text
+    members = client.get(f"{CHASSIS}/Sensors").json()["Members"]
+    assert f"{CHASSIS}/Sensors/vrm_temp" not in [m["@odata.id"] for m in members]
