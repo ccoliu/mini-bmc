@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import asyncio
 
-from conftest import Sensord
-
 from app.sensor_catalog import CATALOG
 from app.sensord_client import SensordClient, SensorReading
+from conftest import Sensord
 
 # The contract: each sensord unit, and the UCUM unit and ReadingType Redfish must show for it.
 UNIT_CONTRACT = {
