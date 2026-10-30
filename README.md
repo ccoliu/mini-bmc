@@ -34,7 +34,7 @@ flowchart LR
   any endpoint outside a small allowlist answers without credentials. Containers run as
   non-root on a read-only filesystem with all capabilities dropped, and `sensord` has no
   network at all.
-- **CI on every push** – 5 GitHub Actions jobs covering C build and analysis, Python lint
+- **CI on every push** – 4 GitHub Actions jobs covering C build and analysis, Python lint
   (ruff), type checks (pyrefly), unit tests, integration tests against both a release and an
   ASan build of the daemon, and a Docker Compose smoke test of the shipped images.
 
@@ -95,13 +95,13 @@ curl -s -H "$AUTH" $BASE/Systems/1 | jq .PowerState         # "Off"
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 170 tests in total, all run in CI.
+Each layer catches a different class of bug. 186 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
 | sensord unit | Unity (C), under ASan + UBSan | 29 | Parser edge cases, buffer bounds, threshold and fault logic |
-| redfishd unit | pytest + a fake sensord | 95 | Error mapping, auth and sessions (with an injectable clock), action validation |
-| Integration | pytest against the real daemon, release and ASan builds | 46 | Protocol over a real socket, malformed input, client limits, signals, stale sockets |
+| redfishd unit | pytest + a fake sensord | 100 | Error mapping, auth and sessions (with an injectable clock), action validation |
+| Integration | pytest against the real daemon, release and ASan builds | 57 | Protocol over a real socket, malformed input, client limits, signals, stale sockets |
 | Conformance | DMTF JSON schemas, part of the integration suite | (14) | Wrong property names, invalid enum values, broken links, in healthy, faulted and powered-off states |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 6 | Problems that only show up in the shipped images and wiring |
 
