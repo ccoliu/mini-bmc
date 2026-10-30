@@ -17,6 +17,8 @@
 #include "sensors.h"
 
 #define MAX_CLIENTS 16
+#define MAX_REJECTS 4          /* turned-away connections kept half-open at once */
+#define REJECT_LINGER_MS 1000u /* longest a turned-away connection is kept */
 
 struct client {
     int fd;                             // -1 表示目前沒有用戶端連線
@@ -24,6 +26,11 @@ struct client {
     size_t len;                         // 目前暫存文字的長度
     bool discarding;                    // 長度超標設定為 true，代表正在丢棄
     bool bad_byte;                      // 目前暫存文字中包含不合法的字元 (null)
+};
+
+struct reject {
+    int fd;             /* -1 when the slot is free */
+    uint64_t deadline;  /* now_ms() value after which we close it anyway */
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -226,8 +233,43 @@ static void handle_readable(struct client *c, struct sensor_set *set)
     }
 }
 
+static void close_reject(struct reject *r) {
+    close(r->fd);
+    r->fd = -1;
+}
+
+/* Reads and discards whatever the turned-away client sent; closes once it hangs up. */
+static void drain_reject(struct reject *r) {
+    char sink[512];
+    ssize_t n;
+
+    while ((n = recv(r->fd, sink, sizeof sink, 0)) > 0);
+    if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+        close_reject(r);
+    }
+}
+
+/* Replies too_many_clients. With a free reject slot the connection is half-closed and
+ * kept until the client is done; without one it is closed at once (load shedding). */
+static void turn_away(int fd, struct reject *rejects, uint64_t now) {
+    struct client tmp = {.fd = fd};
+
+    reply_error(&tmp, "too_many_clients");
+    if (tmp.fd < 0) /* send failed and already closed it */
+        return;
+    for (size_t i = 0; i < MAX_REJECTS; i++) {
+        if (rejects[i].fd < 0) {
+            shutdown(fd, SHUT_WR);  /* client reads the reply, then EOF */
+            rejects[i].fd = fd;
+            rejects[i].deadline = now + REJECT_LINGER_MS;
+            return;
+        }
+    }
+    close(fd);
+}
+
 // 接收客戶端連線
-static void accept_client(int listen_fd, struct client *clients)
+static void accept_client(int listen_fd, struct client *clients, struct reject *rejects, uint64_t now)
 {
     int fd = accept(listen_fd, NULL, NULL); // 接收客戶端連線
 
@@ -245,11 +287,7 @@ static void accept_client(int listen_fd, struct client *clients)
         }
     }
     {
-        struct client tmp = { .fd = fd }; // 建立暫時的客戶端
-
-        reply_error(&tmp, "too_many_clients"); // 回傳錯誤訊息
-        if (tmp.fd >= 0) // 若成功
-            close(fd); // 關閉連線
+        turn_away(fd, rejects, now); // 名額已滿：回覆 too_many_clientss
     }
 }
 
@@ -258,8 +296,10 @@ int server_run(const struct server_config *cfg)
 {
     struct sensor_set set; // sensor_set
     struct client clients[MAX_CLIENTS]; // 設定最大客戶端數量
-    struct pollfd pfds[MAX_CLIENTS + 1]; // pollfd 陣列
-    struct client *owners[MAX_CLIENTS + 1]; // owners 陣列
+    struct reject rejects[MAX_REJECTS];
+    struct pollfd pfds[MAX_CLIENTS + MAX_REJECTS + 1]; // pollfd 陣列
+    struct client *owners[MAX_CLIENTS + MAX_REJECTS + 1]; // owners 陣列
+    struct reject *reject_owners[MAX_CLIENTS + MAX_REJECTS + 1];
     uint64_t next_tick; // 下一次 tick 時間
     int listen_fd; // 監聽 Socket
 
@@ -274,13 +314,17 @@ int server_run(const struct server_config *cfg)
     sensors_init(&set, cfg->seed); // 初始化 sensor
     for (size_t i = 0; i < MAX_CLIENTS; i++) // 遍歷所有客戶端
         clients[i].fd = -1; // 設定為未連線
+    for (size_t i = 0; i < MAX_REJECTS; i++)
+        rejects[i].fd = -1;
     fprintf(stderr, "sensord: listening on %s\n", cfg->socket_path);
 
     next_tick = now_ms() + cfg->tick_ms; // 設定下一次 tick 時間
     while (!stop_requested) { // 只要沒有收到 stop 訊號
         nfds_t nfds = 1; // pollfd 陣列的大小
         uint64_t now = now_ms(); // 當前時間
-        int timeout = next_tick > now ? (int)(next_tick - now) : 0; // 等待時間
+        nfds_t first_reject;
+        uint64_t wake = next_tick; // wake for the next tick or the earliest reject deadline
+        int timeout;
         int ready; // poll 回傳的值
         
         // 第 0 格放 監聽 socket
@@ -295,6 +339,19 @@ int server_run(const struct server_config *cfg)
                 nfds++; // 增加 pollfd 陣列的大小
             }
         }
+        first_reject = nfds;
+        for (size_t i = 0; i < MAX_REJECTS; i++) {
+            if (rejects[i].fd >= 0) {
+                pfds[nfds].fd = rejects[i].fd;
+                pfds[nfds].events = POLLIN;
+                reject_owners[nfds] = &rejects[i];
+                nfds++;
+                if (rejects[i].deadline < wake) {
+                    wake = rejects[i].deadline;
+                }
+            }
+        }
+        timeout = wake > now ? (int)(wake - now) : 0;
 
         ready = poll(pfds, nfds, timeout); // 檢查是否有 socket 有資料可讀
         if (ready < 0 && errno != EINTR) { // 若失敗且不是因為中斷，列印錯誤訊息
@@ -308,15 +365,29 @@ int server_run(const struct server_config *cfg)
             next_tick = now - next_tick >= cfg->tick_ms ? now + cfg->tick_ms
                                                          : next_tick + cfg->tick_ms;
         }
+
+        for (size_t i = 0; i < MAX_REJECTS; i++) {
+            if (rejects[i].fd >= 0 && now >= rejects[i].deadline)
+                close_reject(&rejects[i]); // the client never hung up
+        }
+        
         if (ready <= 0) // 若沒有 socket 有資料可讀
             continue;
 
-        for (nfds_t i = 1; i < nfds; i++) { // 遍歷所有客戶端
+        for (nfds_t i = 1; i < first_reject; i++) { // 遍歷所有客戶端
             if (pfds[i].revents & (POLLIN | POLLHUP | POLLERR)) // 若客戶端有資料可讀
                 handle_readable(owners[i], &set); // 處理客戶端資料
         }
+
+        for (nfds_t i = first_reject; i < nfds; i++) {
+            /* fd >= 0: the deadline sweep above may have closed it already */
+            if ((pfds[i].revents & (POLLIN | POLLHUP | POLLERR)) && reject_owners[i]->fd >= 0) {
+                drain_reject(reject_owners[i]);
+            }
+        }
+
         if (pfds[0].revents & POLLIN) // 若監聽 socket 有資料可讀
-            accept_client(listen_fd, clients); // 接受客戶端連線
+            accept_client(listen_fd, clients, rejects, now); // 接受客戶端連線
     }
 
     // 停止連線後，逐一關閉連線
@@ -324,6 +395,13 @@ int server_run(const struct server_config *cfg)
         if (clients[i].fd >= 0) // 若客戶端已連線
             close(clients[i].fd); // 關閉連線
     }
+
+    for(size_t i = 0; i < MAX_REJECTS; i++) {
+        if (rejects[i].fd >= 0) {
+            close(rejects[i].fd);
+        }
+    }
+
     close(listen_fd); // 關閉監聽 socket
     unlink(cfg->socket_path); // 刪除 socket 檔案
     fprintf(stderr, "sensord: shutting down\n"); // 列印停止訊息

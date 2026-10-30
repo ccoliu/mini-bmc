@@ -94,6 +94,9 @@ Source modules (`sensord/src/`):
   `bad_request` (not a flat JSON object of strings), `missing_field`, `unknown_cmd`,
   `unknown_sensor`, `unknown_mode`, `invalid_fault_for_sensor`, `line_too_long` (> 1023 bytes;
   the rest of that line is discarded, the connection stays open).
+- When all client slots are taken, a new connection gets `too_many_clients`, then is
+  half-closed (`shutdown(SHUT_WR)`) and kept up to 1 s (at most 4 such connections), so a
+  client that writes its request late still reads the reply instead of getting `EPIPE`.
 - A client that does not read its responses (send would block) is disconnected rather than
   stalling the daemon.
 
