@@ -29,5 +29,6 @@ def service_root(request: Request) -> dict[str, Any]:
         "Chassis": link(f"{ROOT}/Chassis"),
         "Systems": link(f"{ROOT}/Systems"),
         "SessionService": link(f"{ROOT}/SessionService"),
+        "Tasks": link(f"{ROOT}/TaskService"),
         "Links": {"Sessions": link(f"{ROOT}/SessionService/Sessions")},
     }

@@ -117,6 +117,8 @@ def test_crawl_covers_every_resource_type(api: TestClient) -> None:
         "#SessionService",
         "#SessionCollection",
         "#Session",
+        "#TaskService",
+        "#TaskCollection",  # empty here; Task bodies are checked with the firmware update
     }
 
 

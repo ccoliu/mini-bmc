@@ -5,28 +5,42 @@ Run with:  uvicorn app.main:app --app-dir redfishd
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
 from . import errors
 from .config import Settings
 from .power import PowerController
-from .routers import chassis, service_root, session_service, systems
+from .routers import chassis, service_root, session_service, systems, task_service
 from .sensord_client import SensordClient
 from .sessions import SessionStore
+from .tasks import TaskManager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    await app.state.tasks.shutdown()  # cancel background work rather than orphan it
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
 
     app = FastAPI(
-        title="mini-bmc redfishd", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None
+        title="mini-bmc redfishd",
+        version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
     )
     app.state.settings = settings
     app.state.sensord = SensordClient(settings.sensord_socket, settings.sensord_timeout)
     app.state.power = PowerController()
     app.state.sessions = SessionStore()
+    app.state.tasks = TaskManager()
 
     @app.middleware("http")
     async def odata_version(
@@ -42,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(systems.router)
     app.include_router(session_service.public)
     app.include_router(session_service.router)
+    app.include_router(task_service.router)
     return app
 
 

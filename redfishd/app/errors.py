@@ -17,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .odata import TYPES
+from .odata import registry_message
 from .sensord_client import SensordRequestError, SensordUnavailable
 
 REGISTRY_PREFIX = "Base.1.24"
@@ -82,17 +82,7 @@ MESSAGES: dict[str, tuple[str, str]] = {
 
 def message(key: str, *args: str) -> dict[str, Any]:
     """One entry for @Message.ExtendedInfo, with %1..%n filled in from args."""
-    template, severity = MESSAGES[key]
-    text = template
-    for i, arg in enumerate(args, start=1):
-        text = text.replace(f"%{i}", arg)
-    return {
-        "@odata.type": TYPES["Message"],
-        "MessageId": f"{REGISTRY_PREFIX}.{key}",
-        "Message": text,
-        "MessageArgs": list(args),
-        "MessageSeverity": severity,
-    }
+    return registry_message(REGISTRY_PREFIX, MESSAGES, key, *args)
 
 
 class RedfishError(Exception):

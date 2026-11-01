@@ -23,6 +23,9 @@ TYPES = {
     "SessionService": "#SessionService.v1_2_0.SessionService",
     "SessionCollection": "#SessionCollection.SessionCollection",
     "Session": "#Session.v1_9_0.Session",
+    "TaskService": "#TaskService.v1_3_0.TaskService",
+    "TaskCollection": "#TaskCollection.TaskCollection",
+    "Task": "#Task.v1_7_4.Task",
     "Message": "#Message.v1_4_0.Message",
 }
 
@@ -50,4 +53,23 @@ def collection(type_name: str, path: str, name: str, member_paths: list[str]) ->
         "Name": name,
         "Members": [link(p) for p in member_paths],
         "Members@odata.count": len(member_paths),
+    }
+
+
+def registry_message(
+    registry: str, messages: dict[str, tuple[str, str]], key: str, *args: str
+) -> dict[str, Any]:
+    """A Message object from a message registry, with %1..%n filled in from args.
+    `registry` is "Prefix.Major.Minor", e.g. "Base.1.24"; `messages` maps each key to
+    its (template, severity) as published in that registry."""
+    template, severity = messages[key]
+    text = template
+    for i, arg in enumerate(args, start=1):
+        text = text.replace(f"%{i}", arg)
+    return {
+        "@odata.type": TYPES["Message"],
+        "MessageId": f"{registry}.{key}",
+        "Message": text,
+        "MessageArgs": list(args),
+        "MessageSeverity": severity,
     }

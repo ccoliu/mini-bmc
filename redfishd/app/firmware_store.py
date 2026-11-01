@@ -173,7 +173,7 @@ class FirmwareStore:
         try:
             image = parse_image(self._slot_path(slot).read_bytes())
         except (OSError, ImageError) as exc:
-            log.error("Firmware slot %s does not match %s", slot, exc)
+            log.error("Firmware slot %s is unreadable: %s", slot, exc)
             return None
         if SlotInfo(image.version, image.sha256) != info:
             log.error("Firmware slot %s does not match %s", slot, STATE_FILE)

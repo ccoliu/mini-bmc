@@ -45,6 +45,9 @@ FILES = [
     "SessionCollection.json",
     "SessionService.json",
     "SessionService.v1_2_0.json",
+    "TaskCollection.json",
+    "TaskService.json",
+    "TaskService.v1_3_0.json",
     "odata-v4.json",
     "redfish-error.v1_0_2.json",
 ]
