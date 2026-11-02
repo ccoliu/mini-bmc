@@ -15,6 +15,8 @@ class Settings:
     password: str = "admin"  # simulator default; override via REDFISH_PASSWORD
     # Stable across restarts so clients can recognise the same service.
     service_uuid: str = str(uuid.uuid5(uuid.NAMESPACE_DNS, "mini-bmc.local"))
+    firmware_dir: str = "/tmp/mini-bmc-firmware"  # the A/B slots; a volume in Docker
+    reboot_seconds: float = 3.0  # how long the simulated reboot into new firmware takes
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -25,4 +27,6 @@ class Settings:
             username=os.environ.get("REDFISH_USERNAME", d.username),
             password=os.environ.get("REDFISH_PASSWORD", d.password),
             service_uuid=os.environ.get("REDFISH_UUID", d.service_uuid),
+            firmware_dir=os.environ.get("REDFISH_FIRMWARE_DIR", d.firmware_dir),
+            reboot_seconds=float(os.environ.get("REDFISH_REBOOT_SECONDS", d.reboot_seconds)),
         )

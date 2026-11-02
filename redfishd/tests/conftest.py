@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -53,8 +55,14 @@ class FakeSensord:
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(sensord_socket="/nonexistent/sensord.sock", username="admin", password="pw")
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        sensord_socket="/nonexistent/sensord.sock",
+        username="admin",
+        password="pw",
+        firmware_dir=str(tmp_path / "firmware"),
+        reboot_seconds=0,
+    )
 
 
 @pytest.fixture
@@ -84,3 +92,13 @@ def client(app: FastAPI, settings: Settings) -> TestClient:
 def anon_client(app: FastAPI) -> TestClient:
     """Same app, no credentials."""
     return TestClient(app)
+
+
+@pytest.fixture
+def live(app: FastAPI, settings: Settings) -> Iterator[TestClient]:
+    """A client whose event loop keeps running between requests, like a real server.
+    Without `with`, TestClient gives every request its own short-lived loop, which
+    would cancel background tasks as soon as the request that started them returns."""
+
+    with TestClient(app, headers=basic_auth(settings.username, settings.password)) as client:
+        yield client

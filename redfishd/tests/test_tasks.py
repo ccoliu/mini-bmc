@@ -3,14 +3,11 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from collections.abc import Iterator
 
 import pytest
-from conftest import basic_auth
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.config import Settings
 from app.odata import registry_message
 from app.tasks import Task, TaskFailed, TaskLimitReached, TaskManager
 
@@ -97,6 +94,7 @@ def test_crash_is_logged_and_aborts_the_task(caplog: pytest.LogCaptureFixture) -
     assert "crashed" in caplog.text
     assert "ValueError: bug" in caplog.text
 
+
 def test_oldest_completed_task_is_evicted() -> None:
     async def scenario() -> tuple[TaskManager, list[Task]]:
         manager = TaskManager(limit=3)
@@ -106,6 +104,7 @@ def test_oldest_completed_task_is_evicted() -> None:
     manager, tasks = asyncio.run(scenario())
     assert [t.id for t in manager.all()] == ["2", "3", "4"]  # ids are never reused
     assert manager.get(tasks[0].id) is None
+
 
 def test_running_tasks_are_never_evicted() -> None:
     async def scenario() -> None:
@@ -143,16 +142,6 @@ def test_shutdown_cancels_running_work() -> None:
 
 
 # --- HTTP ------------------------------------------------------------------------
-
-
-@pytest.fixture
-def live(app: FastAPI, settings: Settings) -> Iterator[TestClient]:
-    """A client whose event loop keeps running between requests, like a real server.
-    Without `with`, TestClient gives every request its own short-lived loop, which
-    would cancel background tasks as soon as the request that started them returns."""
-
-    with TestClient(app, headers=basic_auth(settings.username, settings.password)) as client:
-        yield client
 
 
 def start_task(client: TestClient, app: FastAPI, release: threading.Event) -> Task:

@@ -27,6 +27,9 @@ TYPES = {
     "TaskCollection": "#TaskCollection.TaskCollection",
     "Task": "#Task.v1_7_4.Task",
     "Message": "#Message.v1_4_0.Message",
+    "UpdateService": "#UpdateService.v1_17_1.UpdateService",
+    "SoftwareInventoryCollection": "#SoftwareInventoryCollection.SoftwareInventoryCollection",
+    "SoftwareInventory": "#SoftwareInventory.v1_15_0.SoftwareInventory",
 }
 
 

@@ -20,6 +20,7 @@ services:
       REDFISH_PASSWORD: ${REDFISH_PASSWORD:-admin}
     volumes:
       - sock:/run/mini-bmc
+      - firmware:/var/lib/redfishd/firmware   # A/B slots survive container restarts
     ports:
       # Loopback only: plain HTTP with demo credentials. REDFISH_PORT picks the host port.
       - "127.0.0.1:${REDFISH_PORT:-8000}:8000"
@@ -33,3 +34,4 @@ services:
 
 volumes:
   sock: {}
+  firmware: {}

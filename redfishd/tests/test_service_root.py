@@ -23,7 +23,7 @@ def test_service_root_content(client: TestClient, settings: Settings) -> None:
     assert body["@odata.id"] == "/redfish/v1/"
     assert body["@odata.type"].startswith("#ServiceRoot.v1_")
     assert body["UUID"] == settings.service_uuid
-    for prop in ("Chassis", "Systems", "SessionService", "Tasks"):
+    for prop in ("Chassis", "Systems", "SessionService", "Tasks", "UpdateService"):
         assert body[prop]["@odata.id"].startswith("/redfish/v1/")
     assert body["Links"]["Sessions"] == {"@odata.id": "/redfish/v1/SessionService/Sessions"}
 

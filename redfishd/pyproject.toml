@@ -11,6 +11,7 @@ license = "MIT"
 dependencies = [
     "fastapi==0.141.1",
     "uvicorn==0.53.0",
+    "python-multipart==0.0.32", # multipart/form-data parsing for the firmware upload
 ]
 
 [project.optional-dependencies]

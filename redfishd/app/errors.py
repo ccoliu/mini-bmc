@@ -56,6 +56,10 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "The value '%1' for the property '%2' is not a type that the property can accept.",
         "Warning",
     ),
+    "PropertyValueNotInList": (
+        "The value '%1' for the property '%2' is not in the list of acceptable values.",
+        "Warning",
+    ),
     "PropertyMissing": (
         "The property '%1' is a required property and must be included in the request.",
         "Warning",
@@ -72,6 +76,15 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "The value '%1' for the parameter '%2' in the action '%3' is not in the list of "
         "acceptable values.",
         "Warning",
+    ),
+    "ResourceInUse": (
+        "The change to the requested resource failed because the resource is in use or in "
+        "transition.",
+        "Warning",
+    ),
+    "PayloadTooLarge": (
+        "The supplied payload exceeds the maximum size supported by the service.",
+        "Critical",
     ),
     "ServiceTemporarilyUnavailable": (
         "The service is temporarily unavailable.  Retry in %1 seconds.",
@@ -99,7 +112,11 @@ class RedfishError(Exception):
 
 
 def error_body(key: str, *args: str) -> dict[str, Any]:
-    info = message(key, *args)
+    return error_body_for(message(key, *args))
+
+
+def error_body_for(info: dict[str, Any]) -> dict[str, Any]:
+    """An error body around a Message from any registry (Base, Update, ...)."""
     return {
         "error": {
             "code": info["MessageId"],

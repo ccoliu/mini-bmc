@@ -1,19 +1,22 @@
 """FastAPI application factory.
 
-Run with:  uvicorn app.main:app --app-dir redfishd
+Run with:  uvicorn --factory app.main:create_app --app-dir redfishd
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 
 from . import errors
 from .config import Settings
+from .firmware_store import FirmwareStore
+from .firmware_update import FirmwareUpdater
 from .power import PowerController
-from .routers import chassis, service_root, session_service, systems, task_service
+from .routers import chassis, service_root, session_service, systems, task_service, update_service
 from .sensord_client import SensordClient
 from .sessions import SessionStore
 from .tasks import TaskManager
@@ -41,6 +44,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.power = PowerController()
     app.state.sessions = SessionStore()
     app.state.tasks = TaskManager()
+    # Refuses to start (StoreError) rather than guess which firmware is running.
+    store = FirmwareStore(Path(settings.firmware_dir))
+    app.state.updater = FirmwareUpdater(store, app.state.tasks, settings.reboot_seconds)
 
     @app.middleware("http")
     async def odata_version(
@@ -57,7 +63,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(session_service.public)
     app.include_router(session_service.router)
     app.include_router(task_service.router)
+    app.include_router(update_service.router)
     return app
-
-
-app = create_app()

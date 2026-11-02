@@ -98,8 +98,13 @@ def assert_conforms(pages: dict[str, Any]) -> None:
 
 
 @pytest.fixture
-def api(sensord: Sensord) -> TestClient:
-    settings = Settings(sensord_socket=sensord.socket_path, username="admin", password="pw")
+def api(sensord: Sensord, tmp_path: Path) -> TestClient:
+    settings = Settings(
+        sensord_socket=sensord.socket_path,
+        username="admin",
+        password="pw",
+        firmware_dir=str(tmp_path / "firmware"),
+    )
     return TestClient(create_app(settings), headers=AUTH)
 
 
@@ -117,6 +122,9 @@ def test_crawl_covers_every_resource_type(api: TestClient) -> None:
         "#SessionService",
         "#SessionCollection",
         "#Session",
+        "#UpdateService",
+        "#SoftwareInventoryCollection",
+        "#SoftwareInventory",
         "#TaskService",
         "#TaskCollection",  # empty here; Task bodies are checked with the firmware update
     }
