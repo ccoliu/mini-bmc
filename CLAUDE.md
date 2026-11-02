@@ -111,12 +111,20 @@ python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"   # one venv
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/pyrefly check && (cd redfishd && ../.venv/bin/pyrefly check)
 docker compose up --build --wait && scripts/smoke_test.sh              # REDFISH_PORT picks the host port
+PYTHONPATH=redfishd python3 scripts/make_fw_image.py 1.1.0 -o fw.bin   # demo image (--fail-selftest, --corrupt)
 ```
+
+Run with `uvicorn --factory app.main:create_app`: importing `app.main` has no side effects
+(no module-level app, no firmware directory created). Environment: `REDFISH_USERNAME`,
+`REDFISH_PASSWORD`, `REDFISH_UUID`, `REDFISH_FIRMWARE_DIR` (default `/tmp/mini-bmc-firmware`;
+a named volume in Compose), `REDFISH_REBOOT_SECONDS` (simulated reboot, default 3).
 
 Modules (`redfishd/app/`): `main.py` (app factory), `config.py` (env settings),
 `odata.py` (pinned @odata.type versions), `errors.py` (Redfish error bodies, Base 1.24
 registry subset), `sensord_client.py`, `sensor_catalog.py` (static Redfish metadata per
-sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, and `routers/`.
+sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py`
+(TaskManager), `firmware_image.py` (image format, verification), `firmware_store.py`
+(A/B slots, rollback), `firmware_update.py` (update flow + Update registry subset), and `routers/`.
 
 ### Implemented (Week 2 MVP)
 
@@ -131,16 +139,44 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, and `rout
 - Responses validated against DMTF schemas from Redfish-Publications **2026.2**
   (`tests/redfish_schemas/vendor.py` pins the tag and SHA-256)
 
-### Week 3
+### Implemented (Week 3: firmware update)
 
-- `UpdateService` with a simulated firmware update: image checksum verification,
-  reject corrupt images, automatic rollback on failure
+- Image: `MBFW` magic, format version, 2-byte manifest length, JSON manifest
+  (`component`, `version`, `sha256`, optional `selftest`), payload. Checked in order: total
+  size, magic, format, manifest, component, version, SHA-256. Unknown manifest keys are ignored.
+  Each rejection has a stable `reason` code.
+- `FirmwareStore`: `slot_a.bin` / `slot_b.bin` + `state.json` (the commit point). Writes are
+  tmp + fsync + `os.replace` + directory fsync. `stage()` first marks the target slot as being
+  rewritten, then writes it, then records it as the trial slot; `boot_trial()` commits or rolls
+  back. At startup an unfinished trial is rolled back and a damaged active slot falls back to
+  the other one; a corrupt `state.json` raises `StoreError` (the service refuses to start).
+- `TaskService` + `Tasks/{id}` + `Tasks/{id}/Monitor` (DSP0266 task monitor: 202 with
+  `Location` and `Retry-After` while running, then 200). `TaskEvent.1.1` messages; work raises
+  `TaskFailed` for an expected failure, anything else is logged as a crash. Up to 32 tasks,
+  oldest finished one evicted; all running -> `TaskLimitReached` -> 503.
+- `UpdateService` with `MultipartHttpPushUri` (`UpdateService/upload`, parts
+  `UpdateParameters` + `UpdateFile`; `Targets` empty or the BMC). Verification is synchronous:
+  bad image -> 400 `Update.1.5.VerificationFailed` with the reason in `Resolution`, too large
+  -> 413, update already running -> 409 `ResourceInUse`. Otherwise 202 + task monitor `Location`.
+  A failed self-test ends the Task in `Exception` with `ActivateFailed` and the old version
+  still running. Blocking file I/O runs in `asyncio.to_thread`.
+- `FirmwareInventory`: `BMC` (active) and `BMC_Backup` (`Absent` / `Updating` / `StandbySpare`).
+- Root `tests/`: conformance crawl includes a completed and a rolled-back Task;
+  `test_firmware_update.py` checks sensors stay readable during the simulated reboot.
+  The smoke test pushes a corrupt and a good image through the Compose stack.
+
+### Still to do in Week 3
+
 - DMTF Redfish Service Validator in CI (needs `$metadata` / CSDL, not served yet)
+- Fault-injection scenarios beyond the current ones (open issue #4: stuck sensors)
 
 ### Known limitations (by design, for now)
 
 Plain HTTP (no TLS); a single account from env vars; no lockout or rate limiting on login;
-sessions live in memory and vanish on restart.
+sessions and Tasks live in memory and vanish on restart (installed firmware persists).
+The image SHA-256 gives integrity, not authenticity: no signature check, so any logged-in
+user can build an installable image. One updatable component (the BMC); the "reboot" is a
+timed wait and the self-test result is a flag in the image.
 
 ## Conventions
 
@@ -162,7 +198,7 @@ sessions live in memory and vanish on restart.
 - [x] **Week 0** — GitHub Actions CI added to the author's existing repos (Coworkify, Codoctopus); both green
 - [x] **Week 1** — `sensord`: C daemon, socket protocol above, Unity tests, Makefile, coverage, cppcheck, sanitizers, CI
 - [x] **Week 2** — `redfishd` MVP endpoints, pytest suite, schema validation, Docker Compose, CI → **MVP done**
-- [ ] **Week 3** — firmware update + rollback, fault-injection tests, DMTF Redfish Service Validator in CI
+- [ ] **Week 3** — ~~firmware update + rollback~~ (done: UpdateService, TaskService, A/B slots), fault-injection tests, DMTF Redfish Service Validator in CI
 - [ ] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step
 
 ## References
