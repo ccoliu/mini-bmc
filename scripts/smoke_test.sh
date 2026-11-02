@@ -89,6 +89,7 @@ status=$(curl -s -o /dev/null -D "$tmp/headers" -w '%{http_code}' "${PARAMS[@]}"
 monitor=$(awk 'tolower($1) == "location:" {print $2}' "$tmp/headers" | tr -d '\r')
 if [[ $status != 202 || -z $monitor ]]; then
     fail "firmware upload: expected 202 with a Location, got $status$(no_response_hint "$status")"
+    fail "firmware update: not attempted, the upload was refused"  # one line per check
 else
     echo "ok    firmware upload accepted as a task ($status)"
     # The task monitor answers 202 while the update runs (including the simulated reboot).

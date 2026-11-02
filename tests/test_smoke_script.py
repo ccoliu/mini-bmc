@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "smoke_test.sh"
-CHECKS = 6
+CHECKS = 9
 
 
 def run_smoke(base_url: str) -> subprocess.CompletedProcess[str]:
