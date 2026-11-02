@@ -187,15 +187,15 @@ def test_firmware_update_tasks_conform(api: TestClient) -> None:
 
 
 @pytest.mark.parametrize(
-    ("images", "status"),
+    ("image", "status"),
     [
         (build_image("1.1.0", b"x", sha256="0" * 64), 400),  # Update registry + Resolution
         (b"x" * (MAX_IMAGE_BYTES + 1), 413),
     ],
     ids=["corrupt", "too-large"],  # the default id would be the whole image
 )
-def test_update_error_bodies_conform(api: TestClient, images: bytes, status: int) -> None:
-    r = push(api, images)
+def test_update_error_bodies_conform(api: TestClient, image: bytes, status: int) -> None:
+    r = push(api, image)
     assert r.status_code == status
     assert violations(r.json(), ERROR_SCHEMA) == []
 
@@ -228,3 +228,6 @@ def test_sensord_down_error_conforms(tmp_path: Path) -> None:
     settings = Settings(
         sensord_socket="/nonexistent/sensord.sock", password="pw", firmware_dir=str(tmp_path)
     )
+    r = TestClient(create_app(settings), headers=AUTH).get("/redfish/v1/Chassis/1")
+    assert r.status_code == 503
+    assert violations(r.json(), ERROR_SCHEMA) == []

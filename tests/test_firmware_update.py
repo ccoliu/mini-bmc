@@ -58,5 +58,5 @@ def test_bmc_keeps_serving_during_an_update(api: TestClient) -> None:
             reads_during_update += 1
         time.sleep(0.05)
 
-    assert reads_during_update > 0, "never observed the update is in progress"
+    assert reads_during_update > 0, "never observed the update in progress"
     assert api.get(ACTIVE).json()["Version"] == "1.1.0"
