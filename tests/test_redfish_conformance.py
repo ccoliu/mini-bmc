@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Any
 
 import pytest
 from app.config import Settings
+from app.firmware_image import MAX_IMAGE_BYTES, build_image
 from app.main import create_app
 from conftest import Sensord
 from fastapi.testclient import TestClient
@@ -30,6 +32,7 @@ ROOT = "/redfish/v1/"
 SESSIONS = "/redfish/v1/SessionService/Sessions"
 RESET = "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:pw").decode()}
+UPLOAD = "/redfish/v1/UpdateService/upload"
 
 
 @cache
@@ -97,15 +100,30 @@ def assert_conforms(pages: dict[str, Any]) -> None:
     assert not problems, "\n".join(problems)
 
 
+def push(api: TestClient, image: bytes) -> Any:
+    files = {"UpdateParameters": (None, "{}"), "UpdateFile": ("fw.bin", image)}
+    return api.post(UPLOAD, files=files)
+
+
+def wait_for(api: TestClient, monitor: str) -> None:
+    deadline = time.monotonic() + 5
+    while api.get(monitor).status_code == 202:
+        assert time.monotonic() < deadline, "task did not finish"
+        time.sleep(0.1)
+
+
 @pytest.fixture
-def api(sensord: Sensord, tmp_path: Path) -> TestClient:
+def api(sensord: Sensord, tmp_path: Path) -> Iterator[TestClient]:
     settings = Settings(
         sensord_socket=sensord.socket_path,
         username="admin",
         password="pw",
         firmware_dir=str(tmp_path / "firmware"),
+        reboot_seconds=0,
     )
-    return TestClient(create_app(settings), headers=AUTH)
+    # `with` keeps the event loop alive between requests, so firmware updates can run.
+    with TestClient(create_app(settings), headers=AUTH) as client:
+        yield client
 
 
 def test_crawl_covers_every_resource_type(api: TestClient) -> None:
@@ -126,7 +144,7 @@ def test_crawl_covers_every_resource_type(api: TestClient) -> None:
         "#SoftwareInventoryCollection",
         "#SoftwareInventory",
         "#TaskService",
-        "#TaskCollection",  # empty here; Task bodies are checked with the firmware update
+        "#TaskCollection",  # empty here; see test_firmware_update_tasks_conform
     }
 
 
@@ -155,6 +173,33 @@ def test_powered_off_and_reset_system_conforms(api: TestClient) -> None:
         assert_conforms(crawl(api))
 
 
+def test_firmware_update_tasks_conform(api: TestClient) -> None:
+    good = build_image("1.1.0", b"good" * 1000)
+    rolled_back = build_image("1.2.0", b"bad" * 1000, selftest_passes=False)
+    for image in (good, rolled_back):
+        r = push(api, image)
+        assert r.status_code == 202
+        wait_for(api, r.headers["Location"])
+    pages = crawl(api)
+    tasks = [body for body in pages.values() if body["@odata.type"].startswith("#Task.")]
+    assert sorted(t["TaskState"] for t in tasks) == ["Completed", "Exception"]
+    assert_conforms(pages)
+
+
+@pytest.mark.parametrize(
+    ("images", "status"),
+    [
+        (build_image("1.1.0", b"x", sha256="0" * 64), 400),  # Update registry + Resolution
+        (b"x" * (MAX_IMAGE_BYTES + 1), 413),
+    ],
+    ids=["corrupt", "too-large"],  # the default id would be the whole image
+)
+def test_update_error_bodies_conform(api: TestClient, images: bytes, status: int) -> None:
+    r = push(api, images)
+    assert r.status_code == status
+    assert violations(r.json(), ERROR_SCHEMA) == []
+
+
 @pytest.mark.parametrize(
     ("method", "path", "body", "status"),
     [
@@ -179,8 +224,7 @@ def test_unauthenticated_error_conforms(api: TestClient) -> None:
     assert violations(r.json(), ERROR_SCHEMA) == []
 
 
-def test_sensord_down_error_conforms() -> None:
-    settings = Settings(sensord_socket="/nonexistent/sensord.sock", password="pw")
-    r = TestClient(create_app(settings), headers=AUTH).get("/redfish/v1/Chassis/1")
-    assert r.status_code == 503
-    assert violations(r.json(), ERROR_SCHEMA) == []
+def test_sensord_down_error_conforms(tmp_path: Path) -> None:
+    settings = Settings(
+        sensord_socket="/nonexistent/sensord.sock", password="pw", firmware_dir=str(tmp_path)
+    )

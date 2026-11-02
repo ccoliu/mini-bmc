@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import time
+from pathlib import Path
 
 import pytest
 from app.config import Settings
@@ -17,8 +18,10 @@ PATHS = ["/redfish/v1/Chassis/1", "/redfish/v1/Chassis/1/Sensors/cpu_temp"]
 
 
 @pytest.fixture
-def api(sensord: Sensord) -> TestClient:
-    settings = Settings(sensord_socket=sensord.socket_path, password="pw")
+def api(sensord: Sensord, tmp_path: Path) -> TestClient:
+    settings = Settings(
+        sensord_socket=sensord.socket_path, password="pw", firmware_dir=str(tmp_path)
+    )
     return TestClient(create_app(settings), headers=AUTH)
 
 

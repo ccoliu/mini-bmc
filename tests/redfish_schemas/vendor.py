@@ -48,6 +48,8 @@ FILES = [
     "SoftwareInventory.json",
     "SoftwareInventory.v1_15_0.json",
     "SoftwareInventoryCollection.json",
+    "Task.json",
+    "Task.v1_7_4.json",
     "TaskCollection.json",
     "TaskService.json",
     "TaskService.v1_3_0.json",
