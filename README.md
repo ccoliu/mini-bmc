@@ -27,8 +27,10 @@ flowchart LR
   official DMTF JSON schemas (Redfish-Publications 2026.2, pinned by tag and SHA-256). The test
   crawls the API from the service root and hard-codes no URLs, so a dangling link also fails.
 - **Fault injection end to end** – overheat a CPU sensor in the C daemon and the Redfish
-  chassis reports `HealthRollup: Critical`. Stop the daemon and the API answers `503` with
-  `Retry-After`, then recovers on its own when the daemon returns.
+  chassis reports `HealthRollup: Critical`. Freeze a sensor and, after ten unchanged readings,
+  the daemon flags it as stuck and Redfish reports `Warning` with a DMTF `SensorEvent`
+  condition. Stop the daemon and the API answers `503` with `Retry-After`, then recovers on its
+  own when the daemon returns.
 - **Security basics done deliberately** – random session tokens that are separate from public
   session IDs, constant-time credential checks, and a test that walks every route and fails if
   any endpoint outside a small allowlist answers without credentials. Containers run as
@@ -74,6 +76,12 @@ scripts/sensordctl.sh '{"cmd": "inject_fault", "sensor": "cpu_temp", "mode": "ov
 curl -s -H "$AUTH" $BASE/Chassis/1 | jq .Status      # HealthRollup: "Critical"
 scripts/sensordctl.sh '{"cmd": "clear_faults"}'
 
+# A silent failure: a frozen sensor looks fine until the daemon sees it stop changing
+scripts/sensordctl.sh '{"cmd": "inject_fault", "sensor": "inlet_temp", "mode": "stuck"}'
+sleep 11      # ten unchanged readings at the default 1 s tick
+curl -s -H "$AUTH" $BASE/Chassis/1/Sensors/inlet_temp | jq .Status   # Warning + Conditions
+scripts/sensordctl.sh '{"cmd": "clear_faults"}'
+
 # Power the host off through a Redfish action
 curl -s -o /dev/null -w '%{http_code}\n' -H "$AUTH" -X POST \
      -H 'Content-Type: application/json' -d '{"ResetType": "ForceOff"}' \
@@ -96,7 +104,7 @@ curl -s -H "$AUTH" $BASE/UpdateService/FirmwareInventory/BMC | jq .Version  # "1
 | Resource | Notes |
 |---|---|
 | `/redfish/v1/` service root | Public. Everything else requires authentication. |
-| `Chassis/1`, `Chassis/1/Sensors/{id}` | 3 temperature sensors, 2 fans, 1 PSU. Uses the current `Sensor` model, not the deprecated `Thermal` resource. Health rolls up to the chassis. |
+| `Chassis/1`, `Chassis/1/Sensors/{id}` | 3 temperature sensors, 2 fans, 1 PSU. Uses the current `Sensor` model, not the deprecated `Thermal` resource. A stuck sensor is `Warning` with a `Status.Conditions` entry. Health rolls up to the chassis. |
 | `Systems/1` + `ComputerSystem.Reset` | Simulated host power. 7 reset types, advertised through `@Redfish.AllowableValues`. |
 | `SessionService` | Login (`X-Auth-Token` + `Location`), logout, 30-minute idle timeout. HTTP Basic is accepted too. |
 | `UpdateService` | Multipart push update (`MultipartHttpPushUri`). The image is verified before any Task exists: a bad one gets `400` with an `Update` registry message saying why, an oversized one `413`, a second concurrent update `409`. |
@@ -105,19 +113,19 @@ curl -s -H "$AUTH" $BASE/UpdateService/FirmwareInventory/BMC | jq .Version  # "1
 | Errors | Always a Redfish error body using DMTF Base registry messages, for 400, 401, 404, 405, 409, 413, 500 and 503 alike. |
 
 `sensord` simulates `cpu_temp`, `gpu_temp`, `inlet_temp`, `fan1_rpm`, `fan2_rpm` and
-`psu_watts`, with four fault modes: `overtemp`, `stuck` (a silent failure), `disconnected` and
-`noise`. The socket protocol is specified in [CLAUDE.md](CLAUDE.md#interface).
+`psu_watts`, with four fault modes: `overtemp`, `stuck` (a silent failure, detected from the
+values alone), `disconnected` and `noise`. The socket protocol is specified in [CLAUDE.md](CLAUDE.md#interface).
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 271 tests in total, all run in CI.
+Each layer catches a different class of bug. 290 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
-| sensord unit | Unity (C), under ASan + UBSan | 29 | Parser edge cases, buffer bounds, threshold and fault logic |
-| redfishd unit | pytest + a fake sensord | 181 | Error mapping, auth and sessions (with an injectable clock), action validation, image parsing, crash recovery of the A/B store, task lifecycle |
-| Integration | pytest against the real daemon, release and ASan builds | 61 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, sensors staying readable during a firmware update |
-| Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted and powered-off states, and for completed and rolled-back update Tasks |
+| sensord unit | Unity (C), under ASan + UBSan | 36 | Parser edge cases, buffer bounds, threshold and fault logic, stuck detection without false positives |
+| redfishd unit | pytest + a fake sensord | 188 | Error mapping, auth and sessions (with an injectable clock), action validation, image parsing, crash recovery of the A/B store, task lifecycle |
+| Integration | pytest against the real daemon, release and ASan builds | 66 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
+| Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted, stuck and powered-off states, and for completed and rolled-back update Tasks |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 9 | Problems that only show up in the shipped images and wiring |
 
 The checks are complementary. For example, the DMTF schema accepts any string for
@@ -141,6 +149,13 @@ The checks are complementary. For example, the DMTF schema accepts any string fo
   not thread-safe.
 - **An unreadable sensor makes the chassis `Warning`.** Losing monitoring is itself a problem,
   so it is never reported as `OK`.
+- **Stuck sensors are detected in the daemon, from the values alone.** A healthy sensor jitters
+  every tick, so ten identical full-precision values in a row mean it has frozen. redfishd only
+  sees values rounded to 0.1, where a healthy `inlet_temp` repeats a quarter of the time, and
+  does not know the tick rate, so it could not tell the two apart. Detection never looks at the
+  injected fault, and a unit test proves it by freezing a sensor that has no fault at all.
+  The daemon reports `stuck` next to the threshold `status`; redfishd decides that a frozen
+  value is at least `Warning`.
 - **Firmware goes into the inactive slot, and `state.json` is the commit point.** Every write is
   a temporary file, `fsync`, then an atomic rename, and the state is updated first to say the
   target slot is being rewritten. A power cut at any point leaves either the old firmware

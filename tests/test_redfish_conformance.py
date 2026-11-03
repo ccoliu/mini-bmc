@@ -153,13 +153,25 @@ def test_healthy_service_conforms(api: TestClient) -> None:
     assert_conforms(crawl(api))
 
 
+def test_stuck_sensor_condition_conform(api: TestClient, sensord: Sensord) -> None:
+    # Unlike the faults above, stuck is only reported after several ticks of no change.
+    assert sensord.client().call(cmd="inject_fault", sensor="gpu_temp", mode="stuck")["ok"]
+    gpu = "/redfish/v1/Chassis/1/Sensors/gpu_temp"
+    deadline = time.monotonic() + 2
+    while "Conditions" not in api.get(gpu).json()["Status"]:
+        assert time.monotonic() < deadline, "stuck sensor was never flagged"
+        time.sleep(0.5)
+    pages = crawl(api)
+    assert pages[gpu]["Status"]["Conditions"]  # the crawl really saw it
+    assert_conforms(pages)
+
+
 @pytest.mark.parametrize(
     ("sensor", "mode"),
     [
         ("cpu_temp", "overtemp"),
         ("fan1_rpm", "disconnected"),
         ("psu_watts", "noise"),
-        ("gpu_temp", "stuck"),
     ],
 )
 def test_faulted_sensors_conform(api: TestClient, sensord: Sensord, sensor: str, mode: str) -> None:

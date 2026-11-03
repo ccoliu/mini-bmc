@@ -135,7 +135,10 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py
 
 - `GET /redfish`, `GET /redfish/v1/` (ServiceRoot) — the only unauthenticated reads
 - `Chassis/1`, its `Sensors` collection and `Sensor` resources (modern model, not legacy
-  `Thermal`); `HealthRollup` is the worst sensor health, an unreadable sensor counts as Warning
+  `Thermal`); `HealthRollup` is the worst sensor health, an unreadable sensor counts as Warning.
+  A sensor sensord reports as `stuck` is at least Warning (Critical stays Critical), keeps its
+  last `Reading`, and gets `Status.Conditions` with `SensorEvent.1.2.InvalidSensorReading`
+  (a Condition uses `Severity`, not `MessageSeverity`, and has no `@odata.type`)
 - `Systems/1` with `ComputerSystem.Reset` (7 ResetTypes, advertised via AllowableValues)
 - `SessionService`: login returns `X-Auth-Token` + `Location`; DELETE logs out; 1800 s idle
   timeout. HTTP Basic is accepted too. A sent token is never silently replaced by Basic.
@@ -170,10 +173,16 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py
   `test_firmware_update.py` checks sensors stay readable during the simulated reboot.
   The smoke test pushes a corrupt and a good image through the Compose stack.
 
+### Fault injection (Week 3, issue #4)
+
+`tests/test_fault_injection.py` injects every fault mode into a real sensord and checks the
+Sensor status and chassis `HealthRollup` through Redfish, then that `clear_faults` restores all
+of it. The stuck case starts out looking healthy and is flagged only after `STUCK_TICKS`.
+The conformance crawl runs once with a flagged stuck sensor so `Conditions` are validated.
+
 ### Still to do in Week 3
 
 - DMTF Redfish Service Validator in CI (needs `$metadata` / CSDL, not served yet)
-- Fault-injection scenarios beyond the current ones (open issue #4: stuck sensors)
 
 ### Known limitations (by design, for now)
 
@@ -203,7 +212,7 @@ timed wait and the self-test result is a flag in the image.
 - [x] **Week 0** — GitHub Actions CI added to the author's existing repos (Coworkify, Codoctopus); both green
 - [x] **Week 1** — `sensord`: C daemon, socket protocol above, Unity tests, Makefile, coverage, cppcheck, sanitizers, CI
 - [x] **Week 2** — `redfishd` MVP endpoints, pytest suite, schema validation, Docker Compose, CI → **MVP done**
-- [ ] **Week 3** — ~~firmware update + rollback~~ (done: UpdateService, TaskService, A/B slots), fault-injection tests, DMTF Redfish Service Validator in CI
+- [ ] **Week 3** — ~~firmware update + rollback~~ (done: UpdateService, TaskService, A/B slots), ~~fault-injection tests~~ (done: stuck detection, issue #4), DMTF Redfish Service Validator in CI
 - [ ] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step
 
 ## References
