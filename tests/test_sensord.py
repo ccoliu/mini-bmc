@@ -27,6 +27,7 @@ def test_read_all_returns_every_sensor(client: SensordClient) -> None:
     for s in resp["sensors"]:
         assert isinstance(s["value"], float)
         assert s["status"] == "ok"
+        assert s["stuck"] is False
 
 
 def test_read_single_sensor(client: SensordClient) -> None:
@@ -121,13 +122,30 @@ def test_fault_modes_end_to_end(client: SensordClient) -> None:
     assert s["status"] == "unavailable"
 
     client.call(cmd="inject_fault", sensor="psu_watts", mode="stuck")
-    frozen = client.call(cmd="read", sensor="psu_watts")["sensor"]["value"]
+    frozen = client.call(cmd="read", sensor="psu_watts")["sensor"]
+    assert frozen["stuck"] is False  # not detected yet: that takes STUCK_TICKS
     time.sleep(0.3)  # several ticks at 50 ms
-    assert client.call(cmd="read", sensor="psu_watts")["sensor"]["value"] == frozen
+    assert client.call(cmd="read", sensor="psu_watts")["sensor"]["value"] == frozen["value"]
 
     client.call(cmd="clear_faults")
     for s in client.call(cmd="read_all")["sensors"]:
         assert s["status"] == "ok"
+        assert s["stuck"] is False
+
+
+def test_stuck_sensor_is_detected_and_cleared(client: SensordClient) -> None:
+    client.call(cmd="inject_fault", sensor="inlet_temp", mode="stuck")
+    deadline = time.monotonic() + 2  # STUCK_TICKS (10) ticks at 50 ms is 0.5 s
+    while not client.call(cmd="read", sensor="inlet_temp")["sensor"]["stuck"]:
+        assert time.monotonic() < deadline, "stuck sensor was never detected"
+        time.sleep(0.05)
+    sensors = client.call(cmd="read_all")["sensors"]
+    assert [s["name"] for s in sensors if s["stuck"]] == ["inlet_temp"]
+    # Stuck is a separate signal: the thresholds still judge the frozen value as fine.
+    assert {s["status"] for s in sensors} == {"ok"}
+
+    client.call(cmd="clear_faults")
+    assert client.call(cmd="read", sensor="inlet_temp")["sensor"]["stuck"] is False
 
 
 def test_client_disconnect_mid_line_does_not_affect_others(sensord) -> None:

@@ -33,9 +33,12 @@ struct sensor {
     double upper_crit; /* INFINITY if unused */
     double value;
     enum fault_mode fault;
+    unsigned unchanged_ticks; /* consecutive ticks with an identical value, capped */
 };
 
 #define SENSOR_COUNT 6
+/* A sensor whose value has not changed for this many ticks is reported as stuck. */
+#define STUCK_TICKS 10
 
 struct sensor_set {
     struct sensor s[SENSOR_COUNT];
@@ -51,6 +54,11 @@ struct sensor *sensors_find(struct sensor_set *set, const char *name);
 
 enum sensor_status sensor_status(const struct sensor *s);
 const char *sensor_status_name(enum sensor_status st);
+
+/* True when the value has been identical for STUCK_TICKS ticks. Judged from the values
+ * alone, never from the injected fault: a real stuck sensor does not announce itself. */
+int sensor_stuck(const struct sensor *s);
+
 
 /* Returns 0 and sets *out on success, -1 for an unknown mode name. */
 int fault_mode_parse(const char *name, enum fault_mode *out);

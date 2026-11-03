@@ -28,12 +28,12 @@ static void test_read_all_lists_every_sensor(void)
     handle("{\"cmd\":\"read_all\"}");
     TEST_ASSERT_EQUAL_STRING(
         "{\"ok\":true,\"sensors\":["
-        "{\"name\":\"cpu_temp\",\"value\":45.0,\"unit\":\"C\",\"status\":\"ok\"},"
-        "{\"name\":\"gpu_temp\",\"value\":50.0,\"unit\":\"C\",\"status\":\"ok\"},"
-        "{\"name\":\"inlet_temp\",\"value\":24.0,\"unit\":\"C\",\"status\":\"ok\"},"
-        "{\"name\":\"fan1_rpm\",\"value\":6000.0,\"unit\":\"RPM\",\"status\":\"ok\"},"
-        "{\"name\":\"fan2_rpm\",\"value\":6000.0,\"unit\":\"RPM\",\"status\":\"ok\"},"
-        "{\"name\":\"psu_watts\",\"value\":350.0,\"unit\":\"W\",\"status\":\"ok\"}]}",
+        "{\"name\":\"cpu_temp\",\"value\":45.0,\"unit\":\"C\",\"status\":\"ok\",\"stuck\":false},"
+        "{\"name\":\"gpu_temp\",\"value\":50.0,\"unit\":\"C\",\"status\":\"ok\",\"stuck\":false},"
+        "{\"name\":\"inlet_temp\",\"value\":24.0,\"unit\":\"C\",\"status\":\"ok\",\"stuck\":false},"
+        "{\"name\":\"fan1_rpm\",\"value\":6000.0,\"unit\":\"RPM\",\"status\":\"ok\",\"stuck\":false},"
+        "{\"name\":\"fan2_rpm\",\"value\":6000.0,\"unit\":\"RPM\",\"status\":\"ok\",\"stuck\":false},"
+        "{\"name\":\"psu_watts\",\"value\":350.0,\"unit\":\"W\",\"status\":\"ok\",\"stuck\":false}]}",
         out);
 }
 
@@ -42,7 +42,7 @@ static void test_read_single_sensor(void)
     handle("{\"cmd\":\"read\",\"sensor\":\"inlet_temp\"}");
     TEST_ASSERT_EQUAL_STRING(
         "{\"ok\":true,\"sensor\":{\"name\":\"inlet_temp\",\"value\":24.0,"
-        "\"unit\":\"C\",\"status\":\"ok\"}}",
+        "\"unit\":\"C\",\"status\":\"ok\",\"stuck\":false}}",
         out);
 }
 
@@ -60,7 +60,7 @@ static void test_disconnected_reports_null_value(void)
     handle("{\"cmd\":\"read\",\"sensor\":\"fan2_rpm\"}");
     TEST_ASSERT_EQUAL_STRING(
         "{\"ok\":true,\"sensor\":{\"name\":\"fan2_rpm\",\"value\":null,"
-        "\"unit\":\"RPM\",\"status\":\"unavailable\"}}",
+        "\"unit\":\"RPM\",\"status\":\"unavailable\",\"stuck\":false}}",
         out);
 }
 
@@ -71,6 +71,15 @@ static void test_clear_faults(void)
     handle("{\"cmd\":\"read\",\"sensor\":\"gpu_temp\"}");
     TEST_ASSERT_NOT_NULL(strstr(out, "\"value\":50.0"));
     TEST_ASSERT_NOT_NULL(strstr(out, "\"status\":\"ok\""));
+}
+
+static void test_stuck_sensor_is_reported(void)
+{
+    handle("{\"cmd\":\"inject_fault\",\"sensor\":\"cpu_temp\",\"mode\":\"stuck\"}");
+    for (int t = 0; t < STUCK_TICKS; t++)
+        sensors_tick(&set);
+    handle("{\"cmd\":\"read\",\"sensor\":\"cpu_temp\"}");
+    TEST_ASSERT_NOT_NULL(strstr(out, "\"status\":\"ok\",\"stuck\":true}"));
 }
 
 static void test_error_codes(void)
@@ -124,6 +133,7 @@ int main(void)
     RUN_TEST(test_inject_overtemp_then_read);
     RUN_TEST(test_disconnected_reports_null_value);
     RUN_TEST(test_clear_faults);
+    RUN_TEST(test_stuck_sensor_is_reported);
     RUN_TEST(test_error_codes);
     RUN_TEST(test_failed_inject_leaves_state_untouched);
     RUN_TEST(test_small_buffer_yields_valid_error_not_truncated_json);

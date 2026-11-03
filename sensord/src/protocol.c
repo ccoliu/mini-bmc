@@ -14,6 +14,8 @@ static void write_sensor(struct json_buf *b, const struct sensor *s)
     jb_str(b, s->unit);
     jb_raw(b, ",\"status\":");
     jb_str(b, sensor_status_name(sensor_status(s)));
+    jb_raw(b, ",\"stuck\":");
+    jb_raw(b, sensor_stuck(s) ? "true" : "false");
     jb_raw(b, "}");
 }
 

@@ -5,12 +5,12 @@
 
 static const struct sensor defaults[SENSOR_COUNT] = {
     /* name          kind          unit    nominal jitter lower_crit  upper_warn upper_crit */
-    { "cpu_temp",   SENSOR_TEMP,  "C",    45.0,   0.5,   -INFINITY,  85.0,      95.0,     0, FAULT_NONE },
-    { "gpu_temp",   SENSOR_TEMP,  "C",    50.0,   0.5,   -INFINITY,  83.0,      93.0,     0, FAULT_NONE },
-    { "inlet_temp", SENSOR_TEMP,  "C",    24.0,   0.2,   -INFINITY,  35.0,      40.0,     0, FAULT_NONE },
-    { "fan1_rpm",   SENSOR_FAN,   "RPM",  6000.0, 50.0,  1000.0,     INFINITY,  INFINITY, 0, FAULT_NONE },
-    { "fan2_rpm",   SENSOR_FAN,   "RPM",  6000.0, 50.0,  1000.0,     INFINITY,  INFINITY, 0, FAULT_NONE },
-    { "psu_watts",  SENSOR_POWER, "W",    350.0,  10.0,  -INFINITY,  750.0,     800.0,    0, FAULT_NONE },
+    { "cpu_temp",   SENSOR_TEMP,  "C",    45.0,   0.5,   -INFINITY,  85.0,      95.0,     0, FAULT_NONE, 0 },
+    { "gpu_temp",   SENSOR_TEMP,  "C",    50.0,   0.5,   -INFINITY,  83.0,      93.0,     0, FAULT_NONE, 0 },
+    { "inlet_temp", SENSOR_TEMP,  "C",    24.0,   0.2,   -INFINITY,  35.0,      40.0,     0, FAULT_NONE, 0 },
+    { "fan1_rpm",   SENSOR_FAN,   "RPM",  6000.0, 50.0,  1000.0,     INFINITY,  INFINITY, 0, FAULT_NONE, 0 },
+    { "fan2_rpm",   SENSOR_FAN,   "RPM",  6000.0, 50.0,  1000.0,     INFINITY,  INFINITY, 0, FAULT_NONE, 0 },
+    { "psu_watts",  SENSOR_POWER, "W",    350.0,  10.0,  -INFINITY,  750.0,     800.0,    0, FAULT_NONE, 0 },
 };
 
 /* Degrees above the critical threshold that an overtemp fault drives a sensor to. */
@@ -70,8 +70,21 @@ void sensors_init(struct sensor_set *set, uint64_t seed)
 
 void sensors_tick(struct sensor_set *set)
 {
-    for (size_t i = 0; i < SENSOR_COUNT; i++)
-        step(&set->s[i], &set->rng); // 更新 sensor 的數值
+    for (size_t i = 0; i < SENSOR_COUNT; i++) {
+        struct sensor *s = &set->s[i];
+        double before = s->value;
+
+        step(s, &set->rng); // 更新 sensor 的數值
+        /* Exact comparison on purpose: a healthy sensor jitters by a random double every
+         * tick, so an identical value means it did not move. NaN never compares equal,
+         * so a disconnected sensor is never counted as stuck. */
+        if (s->value == before) {
+            if (s->unchanged_ticks < STUCK_TICKS)
+                s->unchanged_ticks++;
+        } else {
+            s->unchanged_ticks = 0;
+        }
+    }
 }
 
 struct sensor *sensors_find(struct sensor_set *set, const char *name) // 尋找 name 相同的 sensor
@@ -137,11 +150,16 @@ int sensor_inject_fault(struct sensor_set *set, struct sensor *s, enum fault_mod
     return 0;
 }
 
+int sensor_stuck(const struct sensor *s) {
+    return s->unchanged_ticks >= STUCK_TICKS;
+}
+
 // 清除所有故障，將所有 sensor 恢復到 nominal 值
 void sensors_clear_faults(struct sensor_set *set)
 {
     for (size_t i = 0; i < SENSOR_COUNT; i++) {
         set->s[i].fault = FAULT_NONE;
         set->s[i].value = set->s[i].nominal;
+        set->s[i].unchanged_ticks = 0;
     }
 }

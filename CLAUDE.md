@@ -78,16 +78,21 @@ Source modules (`sensord/src/`):
   `--tick-ms`/`SENSORD_TICK_MS` (simulation step, default 1000 ms).
 - Sensors: `cpu_temp`, `gpu_temp`, `inlet_temp` (°C), `fan1_rpm`, `fan2_rpm` (RPM), `psu_watts` (W).
 - Requests (one JSON object per line; request values must be strings):
-  - `{"cmd": "read_all"}` → `{"ok": true, "sensors": [{"name": "...", "value": 42.0, "unit": "C", "status": "ok"}, ...]}`
+  - `{"cmd": "read_all"}` → `{"ok": true, "sensors": [{"name": "...", "value": 42.0, "unit": "C", "status": "ok", "stuck": false}, ...]}`
   - `{"cmd": "read", "sensor": "cpu_temp"}` → `{"ok": true, "sensor": {...}}`
   - `{"cmd": "inject_fault", "sensor": "cpu_temp", "mode": "overtemp|stuck|disconnected|noise"}` → `{"ok": true}`
   - `{"cmd": "clear_faults"}` → `{"ok": true}` (all sensors return to nominal)
 - `status` is one of `ok`, `warning`, `critical`, `unavailable`; derived from per-sensor
   thresholds (see `sensors.c`). An `unavailable` sensor reports `"value": null`.
+- `stuck` is `true` once a sensor's value has been identical for `STUCK_TICKS` (10) consecutive
+  ticks. It is judged from the values alone (full `double` precision, before the one-decimal
+  rounding on the wire), never from the injected fault, and is independent of `status`.
+  A healthy sensor jitters every tick, so it is never stuck; a disconnected one (NaN) neither.
+  `clear_faults` resets it at once; otherwise it clears on the first tick the value moves.
 - Fault semantics (take effect immediately):
   - `overtemp` — temperature sensors only; value jumps above the critical threshold
   - `stuck` — value freezes; status stays whatever it was (a silent failure, detectable only by
-    watching the value over time)
+    watching the value over time: `"stuck": true` after `STUCK_TICKS` ticks)
   - `disconnected` — `value: null`, `status: "unavailable"`
   - `noise` — jitter ×10 around nominal
 - Errors: `{"ok": false, "error": "<code>"}`, never a crash. Codes:

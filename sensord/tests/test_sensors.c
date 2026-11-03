@@ -142,6 +142,83 @@ static void test_stuck_freezes_value(void)
     TEST_ASSERT_EQUAL(STATUS_OK, sensor_status(fan)); /* silent failure */
 }
 
+static void test_stuck_is_detected_after_stuck_ticks(void)
+{
+    struct sensor *fan = sensors_find(&set, "fan2_rpm");
+
+    TEST_ASSERT_EQUAL_INT(0, sensor_inject_fault(&set, fan, FAULT_STUCK));
+    for (int t = 0; t < STUCK_TICKS - 1; t++) {
+        sensors_tick(&set);
+        TEST_ASSERT_FALSE(sensor_stuck(fan));
+    }
+    sensors_tick(&set);
+    TEST_ASSERT_TRUE(sensor_stuck(fan));
+    for (size_t i = 0; i < SENSOR_COUNT; i++) {
+        if (&set.s[i] != fan) {
+            TEST_ASSERT_FALSE_MESSAGE(sensor_stuck(&set.s[i]), set.s[i].name);
+        }
+    }
+}
+
+static void test_constant_value_is_stuck_without_any_fault(void)
+{
+    struct sensor *cpu = sensors_find(&set, "cpu_temp");
+
+    /* No fault injected: with no jitter the value never leaves nominal. Detection must
+     * catch this too, which proves it looks at the values, not at the fault flag. */
+    cpu->jitter = 0.0;
+    for (int t = 0; t < STUCK_TICKS; t++)
+        sensors_tick(&set);
+    TEST_ASSERT_EQUAL(FAULT_NONE, cpu->fault);
+    TEST_ASSERT_TRUE(sensor_stuck(cpu));
+}
+
+static void test_healthy_sensors_are_never_stuck(void)
+{
+    for (int t = 0; t < 100000; t++) {
+        sensors_tick(&set);
+        for(size_t i = 0; i < SENSOR_COUNT; i++) {
+            TEST_ASSERT_FALSE_MESSAGE(sensor_stuck(&set.s[i]), set.s[i].name);
+        }
+    }
+}
+
+static void test_stuck_clears_once_the_value_moves(void) {
+    struct sensor *inlet = sensors_find(&set, "inlet_temp");
+
+    sensor_inject_fault(&set, inlet, FAULT_STUCK);
+    for (int t = 0; t < STUCK_TICKS; t++) {
+        sensors_tick(&set);
+    }
+    TEST_ASSERT_TRUE(sensor_stuck(inlet));
+
+    inlet->fault = FAULT_NONE; /* the sensor recovers on its own */
+    sensors_tick(&set);
+    TEST_ASSERT_FALSE(sensor_stuck(inlet));
+}
+
+static void test_disconnected_is_never_stuck(void) 
+{
+    struct sensor *fan = sensors_find(&set, "fan1_rpm");
+
+    sensor_inject_fault(&set, fan, FAULT_DISCONNECTED);
+    for(int t = 0; t < 2 * STUCK_TICKS; t++) {
+        sensors_tick(&set);
+    }
+    TEST_ASSERT_FALSE(sensor_stuck(fan)); /* already unavailable; NaN never repeats */
+}
+
+static void test_clear_faults_clears_stuck_at_once(void)
+{
+    struct sensor *psu = sensors_find(&set, "psu_watts");
+
+    sensor_inject_fault(&set, psu, FAULT_STUCK);
+    for (int t = 0; t < STUCK_TICKS; t++)
+        sensors_tick(&set);
+    sensors_clear_faults(&set);
+    TEST_ASSERT_FALSE(sensor_stuck(psu));
+}
+
 static void test_disconnected_is_unavailable(void)
 {
     struct sensor *psu = sensors_find(&set, "psu_watts");
@@ -207,6 +284,12 @@ int main(void)
     RUN_TEST(test_overtemp_is_critical_immediately_and_persists);
     RUN_TEST(test_overtemp_rejected_for_non_temperature_sensors);
     RUN_TEST(test_stuck_freezes_value);
+    RUN_TEST(test_stuck_is_detected_after_stuck_ticks);
+    RUN_TEST(test_constant_value_is_stuck_without_any_fault);
+    RUN_TEST(test_healthy_sensors_are_never_stuck);
+    RUN_TEST(test_stuck_clears_once_the_value_moves);
+    RUN_TEST(test_clear_faults_clears_stuck_at_once);
+    RUN_TEST(test_disconnected_is_never_stuck);
     RUN_TEST(test_disconnected_is_unavailable);
     RUN_TEST(test_noise_widens_spread);
     RUN_TEST(test_clear_faults_restores_nominal);
