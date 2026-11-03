@@ -67,8 +67,8 @@ def run_with_fake(
 READ_ALL = {
     "ok": True,
     "sensors": [
-        {"name": "cpu_temp", "value": 45.5, "unit": "C", "status": "ok"},
-        {"name": "fan2_rpm", "value": None, "unit": "RPM", "status": "unavailable"},
+        {"name": "cpu_temp", "value": 45.5, "unit": "C", "status": "ok", "stuck": True},
+        {"name": "fan2_rpm", "value": None, "unit": "RPM", "status": "unavailable", "stuck": False},
     ],
 }
 
@@ -77,13 +77,14 @@ def test_read_all_parses_readings() -> None:
     result, seen = run_with_fake(lambda _: reply(READ_ALL), lambda c: c.read_all())
     assert seen == [{"cmd": "read_all"}]
     assert result == [
-        SensorReading("cpu_temp", 45.5, "C", "ok"),
-        SensorReading("fan2_rpm", None, "RPM", "unavailable"),
+        SensorReading("cpu_temp", 45.5, "C", "ok", stuck=True),
+        SensorReading("fan2_rpm", None, "RPM", "unavailable", stuck=False),
     ]
 
 
 def test_read_single_sensor() -> None:
-    resp = {"ok": True, "sensor": {"name": "psu_watts", "value": 350, "unit": "W", "status": "ok"}}
+    sensor = {"name": "psu_watts", "value": 350, "unit": "W", "status": "ok", "stuck": False}
+    resp = {"ok": True, "sensor": sensor}
     result, seen = run_with_fake(lambda _: reply(resp), lambda c: c.read("psu_watts"))
     assert seen == [{"cmd": "read", "sensor": "psu_watts"}]
     assert result == SensorReading("psu_watts", 350.0, "W", "ok")
@@ -131,8 +132,17 @@ def test_error_reply_raises_request_error_with_code() -> None:
         pytest.param(b'{"ok": true, "sensors": [{"name": "x"}]}\n', id="sensor-missing-fields"),
         pytest.param(
             b'{"ok": true, "sensors": [{"name": "x", "value": "hot", "unit": "C", '
-            b'"status": "ok"}]}\n',
+            b'"status": "ok", "stuck": false}]}\n',
             id="non-numeric-value",
+        ),
+        pytest.param(
+            b'{"ok": true, "sensors": [{"name": "x", "value": 1, "unit": "C", "status": "ok"}]}\n',
+            id="missing-stuck",
+        ),
+        pytest.param(
+            b'{"ok": true, "sensors": [{"name": "x", "value": 1, "unit": "C", '
+            b'"status": "ok", "stuck": "no"}]}\n',
+            id="stuck-not-bool",
         ),
         pytest.param(b"x" * 100_000 + b"\n", id="oversized-line"),
     ],

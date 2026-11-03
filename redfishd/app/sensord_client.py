@@ -41,6 +41,7 @@ class SensorReading:
     value: float | None  # None when the sensor is unavailable
     unit: str
     status: str  # ok | warning | critical | unavailable
+    stuck: bool = False  # value frozen for sensord's STUCK_TICKS; independent of status
 
     @classmethod
     def from_wire(cls, obj: Any) -> SensorReading:
@@ -48,8 +49,15 @@ class SensorReading:
             value = obj["value"]
             if value is not None:
                 value = float(value)
+            stuck = obj["stuck"]
+            if not isinstance(stuck, bool):
+                raise TypeError(f"stuck is {stuck!r}")
             return cls(
-                name=str(obj["name"]), value=value, unit=str(obj["unit"]), status=str(obj["status"])
+                name=str(obj["name"]),
+                value=value,
+                unit=str(obj["unit"]),
+                status=str(obj["status"]),
+                stuck=stuck,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise SensordUnavailable(f"malformed sensor object: {obj!r}") from exc

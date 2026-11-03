@@ -33,13 +33,15 @@ def test_chassis_resource(client: TestClient) -> None:
         ([("cpu_temp", 86.0, "warning")], "Warning"),
         ([("cpu_temp", 86.0, "warning"), ("fan1_rpm", 500.0, "critical")], "Critical"),
         ([("psu_watts", None, "unavailable")], "Warning"),
+        ([("inlet_temp", 24.0, "ok", True)], "Warning"),
+        ([("inlet_temp", 24.0, "ok", True), ("fan1_rpm", 500.0, "critical")], "Critical"),
     ],
 )
 def test_health_rollup_is_worst_sensor(
     client: TestClient, fake_sensord: FakeSensord, faults: list, rollup: str
 ) -> None:
-    for name, value, status in faults:
-        fake_sensord.set(name, value, status)
+    for fault in faults:
+        fake_sensord.set(*fault)
     assert client.get(CHASSIS).json()["Status"]["HealthRollup"] == rollup
 
 
@@ -92,6 +94,34 @@ def test_sensor_status_mapping(
     body = client.get(f"{CHASSIS}/Sensors/cpu_temp").json()
     assert body["Status"] == expected
     assert body["Reading"] == value
+
+
+STUCK_CONDITION = {
+    "MessageId": "SensorEvent.1.2.InvalidSensorReading",
+    "Message": "Invalid reading received from sensor 'cpu_temp'.",
+    "MessageArgs": ["cpu_temp"],
+    "Severity": "Warning",
+}
+
+
+@pytest.mark.parametrize(
+    ("status", "value", "health"),
+    [
+        ("ok", 45.0, "Warning"),  # within thresholds, but a frozen value is not trustworthy
+        ("warning", 86.0, "Warning"),
+        ("critical", 99.0, "Critical"),  # never downgraded
+    ],
+)
+def test_stuck_sensor_is_at_least_warning_with_a_condition(
+    client: TestClient, fake_sensord: FakeSensord, status: str, value: float, health: str
+) -> None:
+    fake_sensord.set("cpu_temp", value, status, stuck=True)
+    body = client.get(f"{CHASSIS}/Sensors/cpu_temp").json()
+    assert body["Reading"] == value  # the last value is still shown
+    assert (body["Status"]["State"], body["Status"]["Health"]) == ("Enabled", health)
+    (condition,) = body["Status"]["Conditions"]
+    assert condition.pop("Resolution")
+    assert condition == STUCK_CONDITION
 
 
 def test_unknown_sensor(client: TestClient) -> None:

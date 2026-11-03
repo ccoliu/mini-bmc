@@ -33,9 +33,9 @@ class FakeSensord:
             ]
         }
 
-    def set(self, name: str, value: float | None, status: str) -> None:
+    def set(self, name: str, value: float | None, status: str, stuck: bool = False) -> None:
         old = self.readings[name]
-        self.readings[name] = SensorReading(name, value, old.unit, status)
+        self.readings[name] = SensorReading(name, value, old.unit, status, stuck)
 
     def _check(self) -> None:
         if self.down:
