@@ -51,10 +51,13 @@ def test_bmc_keeps_serving_during_an_update(api: TestClient) -> None:
         # Well under the reboot time: the update is not holding up other requests.
         assert time.monotonic() - start < REBOOT_SECONDS / 2
 
+        # ACTIVE before BACKUP: the commit flips both, so if the backup still shows the
+        # trial afterwards, the active version read before it predates the commit.
+        active = api.get(ACTIVE).json()
         backup = api.get(BACKUP).json()
         if backup["Status"]["State"] == "Updating":  # staged, in its trial boot
             assert backup["Version"] == "1.1.0"
-            assert api.get(ACTIVE).json()["Version"] == "1.0.0"
+            assert active["Version"] == "1.0.0"
             reads_during_update += 1
         time.sleep(0.05)
 
