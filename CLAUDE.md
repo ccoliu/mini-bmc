@@ -43,7 +43,8 @@ mini-bmc/
 │   └── Dockerfile
 ├── tests/                # integration + conformance tests against a real sensord
 │   └── redfish_schemas/  # vendored DMTF JSON schemas + vendor.py to refresh them
-├── scripts/              # smoke_test.sh (curl checks), sensordctl.sh (raw sensord requests)
+├── scripts/              # smoke_test.sh (curl checks), service_validator.sh (DMTF validator),
+│                         # sensordctl.sh (raw sensord requests), make_fw_image.py
 ├── docker-compose.yml
 ├── .github/workflows/ci.yml
 └── CLAUDE.md
@@ -117,6 +118,7 @@ python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"   # one venv
 .venv/bin/pyrefly check && (cd redfishd && ../.venv/bin/pyrefly check)
 docker compose up --build --wait && scripts/smoke_test.sh              # REDFISH_PORT picks the host port
 PYTHONPATH=redfishd python3 scripts/make_fw_image.py 1.1.0 -o fw.bin   # demo image (--fail-selftest, --corrupt)
+RSV=/tmp/rsv/bin/rf_service_validator scripts/service_validator.sh     # DMTF Service Validator (stack running)
 ```
 
 Run with `uvicorn --factory app.main:create_app`: importing `app.main` has no side effects
@@ -133,7 +135,10 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py
 
 ### Implemented (Week 2 MVP)
 
-- `GET /redfish`, `GET /redfish/v1/` (ServiceRoot) — the only unauthenticated reads
+- `GET /redfish`, `GET /redfish/v1/` (ServiceRoot), `GET /redfish/v1/$metadata` (CSDL) and
+  `GET /redfish/v1/odata` (service document) — the only unauthenticated reads (DSP0266).
+  `$metadata` is generated from `odata.TYPES`; ServiceRoot links and the service document
+  share `TOP_LEVEL` in `routers/service_root.py`
 - `Chassis/1`, its `Sensors` collection and `Sensor` resources (modern model, not legacy
   `Thermal`); `HealthRollup` is the worst sensor health, an unreadable sensor counts as Warning.
   A sensor sensord reports as `stuck` is at least Warning (Critical stays Critical), keeps its
@@ -180,9 +185,18 @@ Sensor status and chassis `HealthRollup` through Redfish, then that `clear_fault
 of it. The stuck case starts out looking healthy and is flagged only after `STUCK_TICKS`.
 The conformance crawl runs once with a flagged stuck sensor so `Conditions` are validated.
 
-### Still to do in Week 3
+### DMTF Redfish Service Validator (Week 3)
 
-- DMTF Redfish Service Validator in CI (needs `$metadata` / CSDL, not served yet)
+`scripts/service_validator.sh` runs `redfish_service_validator==3.1.8` (own venv, not a
+redfishd dependency) against a running Compose stack, in the CI `docker` job after the smoke
+test. It first injects overtemp / disconnected / stuck faults and a firmware update that fails
+its self-test, so the crawl sees Critical, null-Reading and Conditions sensors and an
+`Exception` Task (the smoke test leaves a `Completed` one); faults are cleared on exit. CSDL
+comes from `tests/redfish_schemas/vendor.py --csdl DIR`: the same pinned, checksummed
+Redfish-Publications release as the JSON schemas, extracted at run time (not committed), and the
+validator runs with `--skipschema` so it never downloads from dmtf.org. It exits non-zero only
+on FAIL (WARN does not fail it); the HTML report is uploaded as the `service-validator-report`
+artifact. Baseline: 0 WARN, 0 FAIL.
 
 ### Known limitations (by design, for now)
 
@@ -212,7 +226,7 @@ timed wait and the self-test result is a flag in the image.
 - [x] **Week 0** — GitHub Actions CI added to the author's existing repos (Coworkify, Codoctopus); both green
 - [x] **Week 1** — `sensord`: C daemon, socket protocol above, Unity tests, Makefile, coverage, cppcheck, sanitizers, CI
 - [x] **Week 2** — `redfishd` MVP endpoints, pytest suite, schema validation, Docker Compose, CI → **MVP done**
-- [ ] **Week 3** — ~~firmware update + rollback~~ (done: UpdateService, TaskService, A/B slots), ~~fault-injection tests~~ (done: stuck detection, issue #4), DMTF Redfish Service Validator in CI
+- [x] **Week 3** — firmware update + rollback (UpdateService, TaskService, A/B slots), fault-injection tests (stuck detection, issue #4), DMTF Redfish Service Validator in CI
 - [ ] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step
 
 ## References

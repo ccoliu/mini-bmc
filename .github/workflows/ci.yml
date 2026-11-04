@@ -133,16 +133,39 @@ jobs:
         run: .venv/bin/pytest -v
 
   docker:
-    name: docker compose (smoke test)
+    name: docker compose (smoke test, DMTF Service Validator)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Build and start the stack
         run: docker compose up --build --wait --wait-timeout 120
 
       - name: Smoke test
         run: scripts/smoke_test.sh
+
+      # Its own venv: the validator and its dependencies are not part of redfishd.
+      - name: Install DMTF Redfish Service Validator
+        run: |
+          python -m venv /tmp/rsv
+          /tmp/rsv/bin/pip install redfish_service_validator==3.1.8
+
+      - name: DMTF Redfish Service Validator
+        env:
+          RSV: /tmp/rsv/bin/rf_service_validator
+        run: scripts/service_validator.sh
+
+      - name: Upload Service Validator report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-validator-report
+          path: validator-report
+          if-no-files-found: ignore
 
       - name: Container logs
         if: always()
