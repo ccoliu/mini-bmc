@@ -33,6 +33,36 @@ TYPES = {
 }
 
 
+def metadata_xml() -> str:
+    """The CSDL document served at $metadata: a Reference to each DMTF schema file behind
+    TYPES. "#Chassis.v1_29_0.Chassis" needs Chassis_v1.xml, with both the "Chassis" and the
+    "Chassis.v1_29_0" namespaces included; a collection has only the unversioned one."""
+    includes: dict[str, list[str]] = {}
+    for odata_type in TYPES.values():
+        namespace = odata_type[1:].rpartition(".")[0]
+        base = namespace.split(".")[0]
+        names = includes.setdefault(base, [base])
+        if namespace not in names:
+            names.append(namespace)
+
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+    lines.append('<edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">')
+    for base, names in includes.items():
+        lines.append(f'  <edmx:Reference Uri="http://redfish.dmtf.org/schemas/v1/{base}_v1.xml">')
+        lines += [f'    <edmx:Include Namespace="{name}"/>' for name in names]
+        lines.append("  </edmx:Reference>")
+    service_root = TYPES["ServiceRoot"][1:].rpartition(".")[0]
+    lines += [
+        "  <edmx:DataServices>",
+        '    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="Service">',
+        f'      <EntityContainer Name="Service" Extends="{service_root}.ServiceContainer"/>',
+        "    </Schema>",
+        "  </edmx:DataServices>",
+        "</edmx:Edmx>",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def link(path: str) -> dict[str, str]:
     """A navigation property: {"@odata.id": path}."""
     return {"@odata.id": path}
