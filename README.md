@@ -121,12 +121,12 @@ values alone), `disconnected` and `noise`. The socket protocol is specified in [
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 294 tests in total, all run in CI.
+Each layer catches a different class of bug. 296 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
 | sensord unit | Unity (C), under ASan + UBSan | 36 | Parser edge cases, buffer bounds, threshold and fault logic, stuck detection without false positives |
-| redfishd unit | pytest + a fake sensord | 192 | Error mapping, auth and sessions (with an injectable clock), action validation, image parsing, crash recovery of the A/B store, task lifecycle |
+| redfishd unit | pytest + a fake sensord | 194 | Error mapping, auth and sessions (with an injectable clock), action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
 | Integration | pytest against the real daemon, release and ASan builds | 66 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
 | Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted, stuck and powered-off states, and for completed and rolled-back update Tasks |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 9 | Problems that only show up in the shipped images and wiring |
@@ -170,6 +170,12 @@ The checks are complementary. For example, the DMTF schema accepts any string fo
   target slot is being rewritten. A power cut at any point leaves either the old firmware
   running or the new one on trial, which is rolled back at startup. A damaged active slot falls
   back to the other one; a damaged `state.json` stops the service rather than guess.
+- **In memory, the firmware state is one immutable snapshot, published after it is saved.**
+  Updates run in a worker thread while HTTP handlers read the state. Changing fields one by
+  one let a reader catch a half-applied commit (a stress test caught thousands per run), and
+  changing memory before disk let a failed write report a version that a restart would roll
+  back. Now each change builds a new frozen object, writes it, then swaps one reference;
+  readers take the snapshot once. No lock to forget, and none held across an fsync.
 - **Verify synchronously, install asynchronously.** A bad image is rejected in the HTTP
   response, before any Task exists. Only an image that will really be installed gets a Task,
   and its blocking file I/O runs in a worker thread so the event loop keeps serving requests.

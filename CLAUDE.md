@@ -163,6 +163,9 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py
   rewritten, then writes it, then records it as the trial slot; `boot_trial()` commits or rolls
   back. At startup an unfinished trial is rolled back and a damaged active slot falls back to
   the other one; a corrupt `state.json` raises `StoreError` (the service refuses to start).
+  In memory the state is one frozen `StoreState` (active, trial, slots); `_commit()` saves it,
+  then swaps the reference, so readers in other threads never see a half-applied change or one
+  a failed write left unsaved. A handler needing several values reads `store.state` once.
 - `TaskService` + `Tasks/{id}` + `Tasks/{id}/Monitor` (DSP0266 task monitor: 202 with
   `Location` and `Retry-After` while running, then 200). `TaskEvent.1.1` messages; work raises
   `TaskFailed` for an expected failure, anything else is logged as a crash. Up to 32 tasks,

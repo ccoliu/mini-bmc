@@ -74,12 +74,12 @@ async def active_firmware(request: Request) -> dict[str, Any]:
 @router.get(BACKUP)
 async def backup_firmware(request: Request) -> dict[str, Any]:
     """The other A/B slot: the previous firmware, the one on trial, or nothing yet."""
-    store = updater(request).store
-    slot = other(store.active_slot)
-    info = store.slot(slot)
+    fw = updater(request).store.state  # one snapshot: an update may be committing now
+    slot = other(fw.active)
+    info = fw.slots[slot]
     if info is None:
         state = "Absent"
-    elif store.trial_slot == slot:
+    elif fw.trial == slot:
         state = "Updating"
     else:
         state = "StandbySpare"

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
+import threading
 from pathlib import Path
 
 import pytest
 
+from app import firmware_store
 from app.firmware_image import ImageError, build_image
 from app.firmware_store import STATE_FILE, FirmwareStore, StoreError, UpdateInProgress
 
@@ -151,3 +154,58 @@ def test_slot_swapped_for_another_valid_image_is_detected(tmp_path: Path) -> Non
     (tmp_path / "slot_b.bin").write_bytes(image("6.6.6"))  # intact, but not what was staged
     assert store.boot_trial() is False
     assert store.active.version == "1.0.0"
+
+
+def test_failed_state_write_changes_nothing_in_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Memory must never run ahead of disk: after a failed commit, the store still reports
+    # what a restart would find (the trial pending, the old firmware active).
+    store = FirmwareStore(tmp_path)
+    store.stage(image("1.1.0"))
+    before = store.state
+
+    def disk_full(path: Path, data: bytes) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(firmware_store, "atomic_write", disk_full)
+    with pytest.raises(OSError, match="No space left"):
+        store.boot_trial()
+    assert store.state == before
+    assert (store.active_slot, store.trial_slot) == ("a", "b")
+
+
+def test_readers_never_see_a_half_applied_update(tmp_path: Path) -> None:
+    # Updates run in a worker thread (asyncio.to_thread) while handlers read the store.
+    # Switch threads as often as possible, so the reader lands inside every update step.
+    store = FirmwareStore(tmp_path)
+    done = threading.Event()
+    errors: list[BaseException] = []
+    seen: set[tuple[str, str | None]] = set()
+
+    def updates() -> None:
+        try:
+            for i in range(1, 31):
+                store.stage(image(f"1.{i}.0"))
+                store.boot_trial()
+        except BaseException as exc:  # reported below; a thread cannot fail the test itself
+            errors.append(exc)
+        finally:
+            done.set()
+
+    interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    worker = threading.Thread(target=updates)
+    worker.start()
+    try:
+        while not done.is_set():
+            snapshot = store.state
+            assert snapshot.trial != snapshot.active
+            assert snapshot.slots[snapshot.active] is not None
+            seen.add((snapshot.active, snapshot.trial))
+    finally:
+        worker.join()
+        sys.setswitchinterval(interval)
+    assert not errors
+    # Not vacuous: the reader really overlapped trials and commits in both directions.
+    assert {("a", "b"), ("b", "a"), ("a", None), ("b", None)} <= seen
