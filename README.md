@@ -4,7 +4,8 @@
 
 A small, self-contained simulator of a server **BMC** (Baseboard Management Controller):
 a C daemon that simulates sensors and faults, a **DMTF Redfish** REST API on top of it, and
-a CI pipeline that checks every response against the official Redfish schemas.
+a CI pipeline that checks every response against the official Redfish schemas and runs
+DMTF's own Redfish Service Validator against the shipped containers.
 No hardware required: `docker compose up` and talk to it with `curl`.
 
 ```mermaid
@@ -171,14 +172,35 @@ The checks are complementary. For example, the DMTF schema accepts any string fo
   running or the new one on trial, which is rolled back at startup. A damaged active slot falls
   back to the other one; a damaged `state.json` stops the service rather than guess.
 - **In memory, the firmware state is one immutable snapshot, published after it is saved.**
-  Updates run in a worker thread while HTTP handlers read the state. Changing fields one by
-  one let a reader catch a half-applied commit (a stress test caught thousands per run), and
-  changing memory before disk let a failed write report a version that a restart would roll
-  back. Now each change builds a new frozen object, writes it, then swaps one reference;
-  readers take the snapshot once. No lock to forget, and none held across an fsync.
+  Each change builds a new frozen object, writes it to disk, then swaps one reference, and
+  readers take the snapshot once. That beats a lock here: readers follow no rule they could
+  forget, and nothing is held across an fsync. See the race below for why it exists.
 - **Verify synchronously, install asynchronously.** A bad image is rejected in the HTTP
   response, before any Task exists. Only an image that will really be installed gets a Task,
   and its blocking file I/O runs in a worker thread so the event loop keeps serving requests.
+
+## Bugs found along the way
+
+Two concurrency bugs, both found, proven and fixed the same way: make the rare interleaving
+happen on demand, fix the cause rather than the timing, then show the new test fails without
+the fix.
+
+- **A race in the firmware store.** The update runs in a worker thread
+  (`asyncio.to_thread`) while HTTP handlers read the same state on the event loop.
+  `boot_trial()` set the active slot and cleared the trial flag in two steps, so a reader
+  could see a state that never exists: the same slot both active and on trial. A stress test
+  with `sys.setswitchinterval(1e-6)` (one thread updating, one reading) turned the rare case
+  into thousands of bad reads per run. Fixing it surfaced a second bug: memory changed before
+  `state.json` was written, so if the write failed, the API reported a version that a restart
+  would roll back. The fix is the snapshot design above. Both regression tests were checked by
+  putting the bug back: splitting the commit fails the stress test, and publishing before
+  saving fails a disk-full test.
+- **A flaky CI test.** The firmware-update integration test failed only on the ASan job, and
+  only sometimes. It read the backup slot (`Updating`), then the active slot, as two separate
+  requests, and the background commit could land between them. Widening the gap between the
+  two requests made it fail every time. The fix reads the active slot first: the commit flips
+  both together, so if the backup still shows the trial afterwards, the earlier read predates
+  the commit. No sleep, no retry.
 
 ## Known limitations
 
