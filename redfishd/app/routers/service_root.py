@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Request, Response
 
 from ..odata import REDFISH_VERSION, ROOT, TYPES, link, metadata_xml
+from ..query import PROTOCOL_FEATURES
 
 router = APIRouter()
 
@@ -40,6 +41,7 @@ def service_root(request: Request) -> dict[str, Any]:
         "UUID": request.app.state.settings.service_uuid,
         **{prop: link(path) for prop, path in TOP_LEVEL.items()},
         "Links": {"Sessions": link(f"{ROOT}/SessionService/Sessions")},
+        "ProtocolFeaturesSupported": PROTOCOL_FEATURES,
     }
 
 

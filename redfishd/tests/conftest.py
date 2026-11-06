@@ -21,6 +21,7 @@ class FakeSensord:
     def __init__(self) -> None:
         self.down = False
         self.error: str | None = None  # make every call fail with this sensord error code
+        self.calls: list[str] = []  # every request, e.g. "read_all" or "read cpu_temp"
         self.readings = {
             r.name: r
             for r in [
@@ -44,10 +45,12 @@ class FakeSensord:
             raise SensordRequestError(self.error)
 
     async def read_all(self) -> list[SensorReading]:
+        self.calls.append("read_all")
         self._check()
         return list(self.readings.values())
 
     async def read(self, name: str) -> SensorReading:
+        self.calls.append(f"read {name}")
         self._check()
         if name not in self.readings:
             raise SensordRequestError("unknown_sensor")

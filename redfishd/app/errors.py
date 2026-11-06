@@ -86,6 +86,20 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "The supplied payload exceeds the maximum size supported by the service.",
         "Critical",
     ),
+    "QueryParameterUnsupported": ("Query parameter '%1' is not supported.", "Warning"),
+    "QueryNotSupportedOnResource": (
+        "Querying is not supported on the requested resource.",
+        "Warning",
+    ),
+    "QueryParameterValueFormatError": (
+        "The value '%1' for the query parameter '%2' is not a format that the parameter can "
+        "accept.",
+        "Warning",
+    ),
+    "QueryParameterOutOfRange": (
+        "The value '%1' for the query parameter '%2' is out of range %3.",
+        "Warning",
+    ),
     "ServiceTemporarilyUnavailable": (
         "The service is temporarily unavailable.  Retry in %1 seconds.",
         "Critical",

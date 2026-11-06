@@ -9,9 +9,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 
-from . import errors
+from . import errors, query
 from .config import Settings
 from .firmware_store import FirmwareStore
 from .firmware_update import FirmwareUpdater
@@ -38,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
+        dependencies=[Depends(query.check_query)],
     )
     app.state.settings = settings
     app.state.sensord = SensordClient(settings.sensord_socket, settings.sensord_timeout)

@@ -108,12 +108,13 @@ curl -s -H "$AUTH" $BASE/UpdateService/FirmwareInventory/BMC | jq .Version  # "1
 | Resource | Notes |
 |---|---|
 | `/redfish/v1/` service root | Public, like `$metadata` (CSDL) and the OData service document `/redfish/v1/odata`. Everything else requires authentication. |
-| `Chassis/1`, `Chassis/1/Sensors/{id}` | 3 temperature sensors, 2 fans, 1 PSU. Uses the current `Sensor` model, not the deprecated `Thermal` resource. A stuck sensor is `Warning` with a `Status.Conditions` entry. Health rolls up to the chassis. |
+| `Chassis/1`, `Chassis/1/Sensors/{id}` | 3 temperature sensors, 2 fans, 1 PSU. Uses the current `Sensor` model, not the deprecated `Thermal` resource. A stuck sensor is `Warning` with a `Status.Conditions` entry. Health rolls up to the chassis. `Sensors?$expand=.` returns every reading in one request, from one daemon read. |
 | `Systems/1` + `ComputerSystem.Reset` | Simulated host power. 7 reset types, advertised through `@Redfish.AllowableValues`. |
 | `SessionService` | Login (`X-Auth-Token` + `Location`), logout, 30-minute idle timeout. HTTP Basic is accepted too. |
 | `UpdateService` | Multipart push update (`MultipartHttpPushUri`). The image is verified before any Task exists: a bad one gets `400` with an `Update` registry message saying why, an oversized one `413`, a second concurrent update `409`. |
 | `UpdateService/FirmwareInventory` | `BMC` (the running firmware) and `BMC_Backup` (the other A/B slot: `Absent`, `Updating` during a trial boot, or `StandbySpare` holding the previous version). |
 | `TaskService/Tasks/{id}` | Long-running operations. The task monitor answers `202` while the task runs and `200` when it is done. Messages come from the DMTF `TaskEvent` and `Update` registries. The 32 most recent tasks are kept. |
+| Query parameters | `$expand` (`*`, `.`, `$levels=1`) on the Sensors collection, advertised in `ProtocolFeaturesSupported`. Any other `$` parameter is `501`, `$expand` anywhere else `400`; unknown parameters without `$` are ignored, as DSP0266 requires. |
 | Errors | Always a Redfish error body using DMTF Base registry messages, for 400, 401, 404, 405, 409, 413, 500 and 503 alike. |
 
 `sensord` simulates `cpu_temp`, `gpu_temp`, `inlet_temp`, `fan1_rpm`, `fan2_rpm` and
@@ -122,13 +123,13 @@ values alone), `disconnected` and `noise`. The socket protocol is specified in [
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 296 tests in total, all run in CI.
+Each layer catches a different class of bug. 333 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
 | sensord unit | Unity (C), under ASan + UBSan | 36 | Parser edge cases, buffer bounds, threshold and fault logic, stuck detection without false positives |
-| redfishd unit | pytest + a fake sensord | 194 | Error mapping, auth and sessions (with an injectable clock), action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
-| Integration | pytest against the real daemon, release and ASan builds | 66 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
+| redfishd unit | pytest + a fake sensord | 228 | Error mapping, auth and sessions (with an injectable clock), query-parameter rules (a route walk, like the auth one), action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
+| Integration | pytest against the real daemon, release and ASan builds | 69 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
 | Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted, stuck and powered-off states, and for completed and rolled-back update Tasks |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 9 | Problems that only show up in the shipped images and wiring |
 | Service Validator | DMTF `rf_service_validator` against `docker compose` | 1 run, ~300 property checks | Anything the DMTF CSDL schemas define that our JSON-schema tests miss, plus `$metadata` itself, checked by DMTF's own tool rather than ours |

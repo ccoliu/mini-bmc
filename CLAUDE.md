@@ -127,7 +127,7 @@ Run with `uvicorn --factory app.main:create_app`: importing `app.main` has no si
 a named volume in Compose), `REDFISH_REBOOT_SECONDS` (simulated reboot, default 3).
 
 Modules (`redfishd/app/`): `main.py` (app factory), `config.py` (env settings),
-`odata.py` (pinned @odata.type versions), `errors.py` (Redfish error bodies, Base 1.24
+`odata.py` (pinned @odata.type versions), `query.py` (query parameters, `$expand`), `errors.py` (Redfish error bodies, Base 1.24
 registry subset), `sensord_client.py`, `sensor_catalog.py` (static Redfish metadata per
 sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py`
 (TaskManager), `firmware_image.py` (image format, verification), `firmware_store.py`
@@ -147,6 +147,15 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py
 - `Systems/1` with `ComputerSystem.Reset` (7 ResetTypes, advertised via AllowableValues)
 - `SessionService`: login returns `X-Auth-Token` + `Location`; DELETE logs out; 1800 s idle
   timeout. HTTP Basic is accepted too. A sent token is never silently replaced by Basic.
+- Query parameters (issue #5, `query.py`): an app-wide dependency ignores unknown params without
+  `$`, answers any other `$` param with 501 `QueryParameterUnsupported`, and `$expand` on a route
+  outside `EXPANDABLE` (only the Sensors collection) with 400 `QueryNotSupportedOnResource`.
+  `$expand` = `*` or `.`, optionally `($levels=1)`: Members become full Sensor bodies (same
+  `sensor_body()` as a single GET) from one `read_all`. `~` -> 501; `$levels` other than 1 -> 400
+  `QueryParameterOutOfRange`; anything else -> 400 `QueryParameterValueFormatError`.
+  `ProtocolFeaturesSupported` in ServiceRoot is `query.PROTOCOL_FEATURES`. The plain collection
+  still needs no sensord. Rules come from DSP0266 "Query parameter overview" (quoted in DMTF's
+  Redfish-Protocol-Validator); messages from Base 1.24.0.
 - Every failure is a Redfish error body; sensord unreachable -> 503 + `Retry-After`
 - `/docs`, `/redoc`, `/openapi.json` are disabled (they would be unauthenticated)
 - Responses validated against DMTF schemas from Redfish-Publications **2026.2**

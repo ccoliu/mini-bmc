@@ -179,6 +179,24 @@ def test_faulted_sensors_conform(api: TestClient, sensord: Sensord, sensor: str,
     assert_conforms(crawl(api))
 
 
+def test_expanded_sensor_collection_conforms(api: TestClient, sensord: Sensord) -> None:
+    # Faults first, so a null Reading and Critical health are in the expanded members too.
+    for sensor, mode in [("cpu_temp", "overtemp"), ("fan1_rpm", "disconnected")]:
+        assert sensord.client().call(cmd="inject_fault", sensor=sensor, mode=mode)["ok"]
+    sensors = "/redfish/v1/Chassis/1/Sensors"
+    r = api.get(f"{sensors}?$expand=.")
+    assert r.status_code == 200
+    body = r.json()
+    members = body["Members"]
+    assert all("ReadingType" in m for m in members)  # really expanded
+    # The collection schema allows a link or a Sensor per member, but its Sensor is an anyOf
+    # over every Sensor version (more files to vendor). Equivalent: the collection with
+    # links, and each member against its own versioned schema.
+    pages = {sensors: {**body, "Members": [{"@odata.id": m["@odata.id"]} for m in members]}}
+    pages |= {m["@odata.id"]: m for m in members}
+    assert_conforms(pages)
+
+
 def test_powered_off_and_reset_system_conforms(api: TestClient) -> None:
     for reset_type in ("ForceOff", "On"):
         assert api.post(RESET, json={"ResetType": reset_type}).status_code == 204
@@ -220,6 +238,8 @@ def test_update_error_bodies_conform(api: TestClient, image: bytes, status: int)
         ("POST", RESET, {"ResetType": "Explode"}, 400),
         ("POST", SESSIONS, {"UserName": "admin"}, 400),
         ("POST", SESSIONS, {"UserName": "admin", "Password": "nope"}, 401),
+        ("GET", f"{ROOT}?$top=1", None, 501),
+        ("GET", "/redfish/v1/Chassis/1/Sensors?$expand=.($levels=2)", None, 400),
     ],
 )
 def test_error_bodies_conform(

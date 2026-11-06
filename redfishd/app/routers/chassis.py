@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from ..auth import require_auth
 from ..errors import RedfishError
 from ..odata import ROOT, collection, link, registry_message, resource
+from ..query import expand_levels
 from ..sensor_catalog import CATALOG
 from ..sensord_client import SensordClient, SensordRequestError, SensorReading
 
@@ -124,11 +125,21 @@ async def chassis(chassis_id: str, request: Request) -> dict[str, Any]:
     )
 
 
-@router.get(f"{ROOT}/Chassis/{{chassis_id}}/Sensors")
-def sensor_collection(chassis_id: str) -> dict[str, Any]:
+@router.get(f"{ROOT}/Chassis/{{chassis_id}}/Sensors")  # in query.EXPANDABLE
+async def sensor_collection(
+    chassis_id: str, request: Request, levels: int = Depends(expand_levels)
+) -> dict[str, Any]:
     check_chassis_id(chassis_id)
-    members = [f"{SENSORS}/{sensor_id}" for sensor_id in CATALOG]
-    return collection("SensorCollection", SENSORS, "Sensors", members)
+    if not levels:
+        members = [f"{SENSORS}/{sensor_id}" for sensor_id in CATALOG]
+        return collection("SensorCollection", SENSORS, "Sensors", members)
+    # Expanded: one read_all, so every member is a reading from the same moment. A sensor
+    # sensord does not report is left out, just as a GET on it would be a 404.
+    readings = {r.name: r for r in await sensord(request).read_all()}
+    bodies = [sensor_body(readings[name]) for name in CATALOG if name in readings]
+    body = collection("SensorCollection", SENSORS, "Sensors", [b["@odata.id"] for b in bodies])
+    body["Members"] = bodies
+    return body
 
 
 @router.get(f"{ROOT}/Chassis/{{chassis_id}}/Sensors/{{sensor_id}}")
