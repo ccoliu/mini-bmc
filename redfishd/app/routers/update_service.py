@@ -6,7 +6,6 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
 from starlette.datastructures import UploadFile
 
 from ..auth import require_auth
@@ -15,6 +14,7 @@ from ..firmware_image import MAX_IMAGE_BYTES, ImageError
 from ..firmware_store import UpdateInProgress, other
 from ..firmware_update import COMPONENT, FirmwareUpdater, update_message
 from ..odata import ROOT, collection, link, resource
+from ..protocol import RedfishJSONResponse
 from ..tasks import TaskLimitReached
 from .task_service import monitor_uri, task_body
 
@@ -135,7 +135,7 @@ def check_parameters(raw: str | bytes) -> None:
 
 
 @router.post(UPLOAD)
-async def push_update(request: Request) -> JSONResponse:
+async def push_update(request: Request) -> RedfishJSONResponse:
     data, filename = await read_upload(request)
     try:
         task = updater(request).start(data, filename)
@@ -153,5 +153,7 @@ async def push_update(request: Request) -> JSONResponse:
             raise RedfishError(413, "PayloadTooLarge") from exc
         info = update_message("VerificationFailed", filename, COMPONENT)
         info["Resolution"] = f"Image rejected ({exc.reason}): {exc.detail}"
-        return JSONResponse(error_body_for(info), status_code=400)
-    return JSONResponse(task_body(task), status_code=202, headers={"Location": monitor_uri(task)})
+        return RedfishJSONResponse(error_body_for(info), status_code=400)
+    return RedfishJSONResponse(
+        task_body(task), status_code=202, headers={"Location": monitor_uri(task)}
+    )

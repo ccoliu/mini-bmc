@@ -77,6 +77,7 @@ MESSAGES: dict[str, tuple[str, str]] = {
         "acceptable values.",
         "Warning",
     ),
+    "HeaderInvalid": ("Header '%1' is invalid.", "Critical"),
     "ResourceInUse": (
         "The change to the requested resource failed because the resource is in use or in "
         "transition.",

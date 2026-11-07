@@ -5,13 +5,13 @@ Run with:  uvicorn --factory app.main:create_app --app-dir redfishd
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI
 
-from . import errors, query
+from . import errors, protocol, query
 from .config import Settings
 from .firmware_store import FirmwareStore
 from .firmware_update import FirmwareUpdater
@@ -39,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=None,
         lifespan=lifespan,
         dependencies=[Depends(query.check_query)],
+        default_response_class=protocol.RedfishJSONResponse,
     )
     app.state.settings = settings
     app.state.sensord = SensordClient(settings.sensord_socket, settings.sensord_timeout)
@@ -49,14 +50,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     store = FirmwareStore(Path(settings.firmware_dir))
     app.state.updater = FirmwareUpdater(store, app.state.tasks, settings.reboot_seconds)
 
-    @app.middleware("http")
-    async def odata_version(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        response = await call_next(request)
-        response.headers["OData-Version"] = "4.0"
-        return response
-
     errors.install(app)
     app.include_router(service_root.router)
     app.include_router(chassis.router)
@@ -65,4 +58,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(session_service.router)
     app.include_router(task_service.router)
     app.include_router(update_service.router)
+    protocol.install(app)  # last: it reads the finished route table
     return app

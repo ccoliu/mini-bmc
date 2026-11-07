@@ -6,11 +6,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
 
 from ..auth import require_auth
 from ..errors import RedfishError
 from ..odata import ROOT, collection, link, resource
+from ..protocol import RedfishJSONResponse
 from ..tasks import Task, TaskManager
 
 SERVICE = f"{ROOT}/TaskService"
@@ -79,13 +79,13 @@ async def get_task(task_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.get(f"{TASKS}/{{task_id}}/Monitor")
-async def task_monitor(task_id: str, request: Request) -> JSONResponse:
+async def task_monitor(task_id: str, request: Request) -> RedfishJSONResponse:
     """DSP0266 task monitor: 202 while the task runs, then its final state."""
     task = find(request, task_id)
     if not task.done:
-        return JSONResponse(
+        return RedfishJSONResponse(
             task_body(task),
             status_code=202,
             headers={"Location": monitor_uri(task), "Retry-After": "1"},
         )
-    return JSONResponse(task_body(task))
+    return RedfishJSONResponse(task_body(task))

@@ -18,6 +18,7 @@ PUBLIC = {
     ("GET", "/redfish/v1/$metadata"),  # DSP0266: the OData documents are public
     ("GET", "/redfish/v1/odata"),
     ("POST", "/redfish/v1/SessionService/Sessions"),
+    ("POST", "/redfish/v1/SessionService/Sessions/Members"),  # the same login
 }
 
 

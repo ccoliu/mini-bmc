@@ -6,11 +6,11 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import JSONResponse
 
 from ..auth import check_credentials, require_auth
 from ..errors import RedfishError
 from ..odata import ROOT, collection, link, resource
+from ..protocol import RedfishJSONResponse
 from ..sessions import Session, SessionStore
 
 SERVICE = f"{ROOT}/SessionService"
@@ -56,13 +56,14 @@ def parse_login(raw: bytes) -> tuple[str, str]:
 
 
 @public.post(SESSIONS)
-async def login(request: Request) -> JSONResponse:
+@public.post(f"{SESSIONS}/Members")  # DSP0266: a POST to Members equals a POST to the collection
+async def login(request: Request) -> RedfishJSONResponse:
     username, password = parse_login(await request.body())
     if not check_credentials(request.app.state.settings, username, password):
         # Same answer for a wrong user name and a wrong password.
         raise RedfishError(401, "NoValidSession")
     session = store(request).create(username)
-    return JSONResponse(
+    return RedfishJSONResponse(
         session_body(session),
         status_code=201,
         headers={"X-Auth-Token": session.token, "Location": f"{SESSIONS}/{session.id}"},
