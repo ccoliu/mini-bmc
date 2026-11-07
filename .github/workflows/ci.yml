@@ -133,7 +133,7 @@ jobs:
         run: .venv/bin/pytest -v
 
   docker:
-    name: docker compose (smoke test, DMTF Service Validator)
+    name: docker compose (smoke test, DMTF validators)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -148,23 +148,34 @@ jobs:
       - name: Smoke test
         run: scripts/smoke_test.sh
 
-      # Its own venv: the validator and its dependencies are not part of redfishd.
-      - name: Install DMTF Redfish Service Validator
+      # Their own venv: the validators and their dependencies are not part of redfishd.
+      - name: Install DMTF Redfish validators
         run: |
-          python -m venv /tmp/rsv
-          /tmp/rsv/bin/pip install redfish_service_validator==3.1.8
+          python -m venv /tmp/dmtf
+          /tmp/dmtf/bin/pip install redfish_service_validator==3.1.8 \
+            redfish-protocol-validator==1.3.2
 
+      # The response bodies, against the DMTF CSDL schemas.
       - name: DMTF Redfish Service Validator
         env:
-          RSV: /tmp/rsv/bin/rf_service_validator
+          RSV: /tmp/dmtf/bin/rf_service_validator
         run: scripts/service_validator.sh
 
-      - name: Upload Service Validator report
+      # HTTP behaviour (headers, status codes, sessions), against a list of known failures.
+      - name: DMTF Redfish Protocol Validator
+        if: success() || failure()
+        env:
+          RPV: /tmp/dmtf/bin/rf_protocol_validator
+        run: scripts/protocol_validator.sh
+
+      - name: Upload validator reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: service-validator-report
-          path: validator-report
+          name: dmtf-validator-reports
+          path: |
+            validator-report
+            protocol-report
           if-no-files-found: ignore
 
       - name: Container logs

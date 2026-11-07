@@ -43,7 +43,8 @@ mini-bmc/
 │   └── Dockerfile
 ├── tests/                # integration + conformance tests against a real sensord
 │   └── redfish_schemas/  # vendored DMTF JSON schemas + vendor.py to refresh them
-├── scripts/              # smoke_test.sh (curl checks), service_validator.sh (DMTF validator),
+├── scripts/              # smoke_test.sh (curl checks), service_validator.sh and
+│                         # protocol_validator.sh (DMTF validators), check_protocol_report.py,
 │                         # sensordctl.sh (raw sensord requests), make_fw_image.py
 ├── docker-compose.yml
 ├── .github/workflows/ci.yml
@@ -118,7 +119,8 @@ python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"   # one venv
 .venv/bin/pyrefly check && (cd redfishd && ../.venv/bin/pyrefly check)
 docker compose up --build --wait && scripts/smoke_test.sh              # REDFISH_PORT picks the host port
 PYTHONPATH=redfishd python3 scripts/make_fw_image.py 1.1.0 -o fw.bin   # demo image (--fail-selftest, --corrupt)
-RSV=/tmp/rsv/bin/rf_service_validator scripts/service_validator.sh     # DMTF Service Validator (stack running)
+RSV=/tmp/dmtf/bin/rf_service_validator scripts/service_validator.sh    # DMTF Service Validator (stack running)
+RPV=/tmp/dmtf/bin/rf_protocol_validator scripts/protocol_validator.sh  # DMTF Protocol Validator (stack running)
 ```
 
 Run with `uvicorn --factory app.main:create_app`: importing `app.main` has no side effects
@@ -127,7 +129,8 @@ Run with `uvicorn --factory app.main:create_app`: importing `app.main` has no si
 a named volume in Compose), `REDFISH_REBOOT_SECONDS` (simulated reboot, default 3).
 
 Modules (`redfishd/app/`): `main.py` (app factory), `config.py` (env settings),
-`odata.py` (pinned @odata.type versions), `query.py` (query parameters, `$expand`), `errors.py` (Redfish error bodies, Base 1.24
+`odata.py` (pinned @odata.type versions), `query.py` (query parameters, `$expand`), `protocol.py` (HTTP headers, JSON response class),
+`errors.py` (Redfish error bodies, Base 1.24
 registry subset), `sensord_client.py`, `sensor_catalog.py` (static Redfish metadata per
 sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py`
 (TaskManager), `firmware_image.py` (image format, verification), `firmware_store.py`
@@ -156,6 +159,14 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py
   `ProtocolFeaturesSupported` in ServiceRoot is `query.PROTOCOL_FEATURES`. The plain collection
   still needs no sensord. Rules come from DSP0266 "Query parameter overview" (quoted in DMTF's
   Redfish-Protocol-Validator); messages from Base 1.24.0.
+- HTTP headers (`protocol.py`, installed last in `create_app`): a request with an `OData-Version`
+  other than 4.0 -> 412 `HeaderInvalid`; every response gets `OData-Version: 4.0` and
+  `Cache-Control: no-cache`; every GET to a known path gets `Allow` (from `app.openapi()` paths:
+  FastAPI 0.141 includes routers lazily, so `app.routes` does not list them); every resource body
+  gets `Link: <schema>; rel=describedby` from its `@odata.type` via `RedfishJSONResponse`, the
+  app's `default_response_class`. A route that builds its own response must use
+  `RedfishJSONResponse`, not `JSONResponse`. POST `Sessions/Members` is the same login as POST
+  `Sessions` (DSP0266).
 - Every failure is a Redfish error body; sensord unreachable -> 503 + `Retry-After`
 - `/docs`, `/redoc`, `/openapi.json` are disabled (they would be unauthenticated)
 - Responses validated against DMTF schemas from Redfish-Publications **2026.2**
@@ -209,6 +220,17 @@ Redfish-Publications release as the JSON schemas, extracted at run time (not com
 validator runs with `--skipschema` so it never downloads from dmtf.org. It exits non-zero only
 on FAIL (WARN does not fail it); the HTML report is uploaded as the `service-validator-report`
 artifact. Baseline: 0 WARN, 0 FAIL.
+
+### DMTF Redfish Protocol Validator
+
+`scripts/protocol_validator.sh` runs `redfish-protocol-validator==1.3.2` (same CI venv
+`/tmp/dmtf`, after the Service Validator) and ignores its exit code: it fails on anything,
+including what this service accepts. `scripts/check_protocol_report.py` compares the TSV report
+with `KNOWN_FAILURES` (assertion ID -> reason): currently only no TLS
+(`SEC_BASIC_AUTH_OVER_HTTPS`, `SEC_SESSION_CREATE_HTTPS_ONLY`) and no roles
+(`SEC_PRIV_SUPPORT_PREDEFINED_ROLES`). A FAIL or WARN outside the list fails CI, and so does a
+listed one that passes (remove it). Reports are uploaded with the Service Validator's as the
+`dmtf-validator-reports` artifact. Its first run (2026-11) found 7 real gaps, all fixed.
 
 ### Known limitations (by design, for now)
 

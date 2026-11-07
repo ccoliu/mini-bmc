@@ -9,5 +9,6 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# DMTF Redfish Service Validator reports (scripts/service_validator.sh)
+# DMTF validator reports (scripts/service_validator.sh, scripts/protocol_validator.sh)
 validator-report/
+protocol-report/

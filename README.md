@@ -5,7 +5,7 @@
 A small, self-contained simulator of a server **BMC** (Baseboard Management Controller):
 a C daemon that simulates sensors and faults, a **DMTF Redfish** REST API on top of it, and
 a CI pipeline that checks every response against the official Redfish schemas and runs
-DMTF's own Redfish Service Validator against the shipped containers.
+DMTF's own Redfish Service and Protocol Validators against the shipped containers.
 No hardware required: `docker compose up` and talk to it with `curl`.
 
 ```mermaid
@@ -27,8 +27,9 @@ flowchart LR
 - **Standards conformance** – every Redfish resource and error body is validated against the
   official DMTF JSON schemas (Redfish-Publications 2026.2, pinned by tag and SHA-256). The test
   crawls the API from the service root and hard-codes no URLs, so a dangling link also fails.
-  On top of that, CI runs the DMTF Redfish Service Validator, DMTF's own conformance tool,
-  against the shipped containers, with faulted sensors and finished update Tasks in place.
+  On top of that, CI runs DMTF's own conformance tools against the shipped containers: the
+  Service Validator on the response bodies, with faulted sensors and finished update Tasks in
+  place, and the Protocol Validator on HTTP behaviour (headers, status codes, sessions).
 - **Fault injection end to end** – overheat a CPU sensor in the C daemon and the Redfish
   chassis reports `HealthRollup: Critical`. Freeze a sensor and, after ten unchanged readings,
   the daemon flags it as stuck and Redfish reports `Warning` with a DMTF `SensorEvent`
@@ -45,8 +46,8 @@ flowchart LR
   serving sensors during the update, and an interrupted update is rolled back at startup.
 - **CI on every push** – 4 GitHub Actions jobs covering C build and analysis, Python lint
   (ruff), type checks (pyrefly), unit tests, integration tests against both a release and an
-  ASan build of the daemon, and a Docker Compose smoke test plus the DMTF Service Validator
-  against the shipped images.
+  ASan build of the daemon, and a Docker Compose smoke test plus both DMTF validators against
+  the shipped images.
 
 ## Quick start
 
@@ -115,7 +116,8 @@ curl -s -H "$AUTH" $BASE/UpdateService/FirmwareInventory/BMC | jq .Version  # "1
 | `UpdateService/FirmwareInventory` | `BMC` (the running firmware) and `BMC_Backup` (the other A/B slot: `Absent`, `Updating` during a trial boot, or `StandbySpare` holding the previous version). |
 | `TaskService/Tasks/{id}` | Long-running operations. The task monitor answers `202` while the task runs and `200` when it is done. Messages come from the DMTF `TaskEvent` and `Update` registries. The 32 most recent tasks are kept. |
 | Query parameters | `$expand` (`*`, `.`, `$levels=1`) on the Sensors collection, advertised in `ProtocolFeaturesSupported`. Any other `$` parameter is `501`, `$expand` anywhere else `400`; unknown parameters without `$` are ignored, as DSP0266 requires. |
-| Errors | Always a Redfish error body using DMTF Base registry messages, for 400, 401, 404, 405, 409, 413, 500 and 503 alike. |
+| HTTP headers | `OData-Version` (a request for another version is `412`), `Cache-Control: no-cache`, `Allow` on every GET, and `Link: <schema>; rel=describedby` naming the DMTF schema of each resource. A POST to `Sessions/Members` logs in like one to `Sessions`. |
+| Errors | Always a Redfish error body using DMTF Base registry messages, for 400, 401, 404, 405, 409, 412, 413, 500, 501 and 503 alike. |
 
 `sensord` simulates `cpu_temp`, `gpu_temp`, `inlet_temp`, `fan1_rpm`, `fan2_rpm` and
 `psu_watts`, with four fault modes: `overtemp`, `stuck` (a silent failure, detected from the
@@ -123,16 +125,17 @@ values alone), `disconnected` and `noise`. The socket protocol is specified in [
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 333 tests in total, all run in CI.
+Each layer catches a different class of bug. 367 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
 | sensord unit | Unity (C), under ASan + UBSan | 36 | Parser edge cases, buffer bounds, threshold and fault logic, stuck detection without false positives |
-| redfishd unit | pytest + a fake sensord | 228 | Error mapping, auth and sessions (with an injectable clock), query-parameter rules (a route walk, like the auth one), action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
-| Integration | pytest against the real daemon, release and ASan builds | 69 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
+| redfishd unit | pytest + a fake sensord | 256 | Error mapping, auth and sessions (with an injectable clock), query-parameter rules (a route walk, like the auth one), protocol headers, action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
+| Integration | pytest against the real daemon, release and ASan builds | 75 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
 | Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted, stuck and powered-off states, and for completed and rolled-back update Tasks |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 9 | Problems that only show up in the shipped images and wiring |
 | Service Validator | DMTF `rf_service_validator` against `docker compose` | 1 run, ~300 property checks | Anything the DMTF CSDL schemas define that our JSON-schema tests miss, plus `$metadata` itself, checked by DMTF's own tool rather than ours |
+| Protocol Validator | DMTF `rf_protocol_validator` against `docker compose` | 1 run, ~180 assertions | HTTP behaviour the body checks cannot see: missing headers, wrong status codes, session rules. Its first run found 7 such bugs. It is held to a short list of known failures, each with its reason (no TLS, no roles); a new failure fails CI, and so does a known one that starts passing, so the list cannot go stale |
 
 The checks are complementary. For example, the DMTF schema accepts any string for
 `ReadingUnits`, so only a unit test catches `"C"` where Redfish requires UCUM `"Cel"`.
@@ -212,6 +215,8 @@ restart (the installed firmware does). The SHA-256 in an image's manifest proves
 (the upload was not damaged), not authenticity: anyone who can log in can build a valid image.
 A real BMC would verify a signature against a key in its root of trust. There is one updatable
 component, the BMC itself, and the "reboot" is a timed wait plus a self-test flag in the image.
+The DMTF Protocol Validator reports the missing TLS and roles as its only failures; they are
+listed, with reasons, in `scripts/check_protocol_report.py`.
 
 ## Roadmap
 
@@ -220,6 +225,7 @@ component, the BMC itself, and the "reboot" is a timed wait plus a self-test fla
 - [x] Firmware update via `UpdateService`: checksum verification, rejecting corrupt images,
       automatic rollback, Redfish Tasks
 - [x] Serve `$metadata` and run the DMTF Redfish Service Validator in CI
+- [x] `$expand` on the Sensors collection, and the DMTF Redfish Protocol Validator in CI
 
 ## Development
 
@@ -231,9 +237,11 @@ python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"
 (cd redfishd && ../.venv/bin/pytest)            # redfishd unit tests
 .venv/bin/pytest                                # integration + conformance
 .venv/bin/ruff check . && .venv/bin/pyrefly check
-# DMTF Service Validator against the Compose stack (report in validator-report/):
-python3 -m venv /tmp/rsv && /tmp/rsv/bin/pip install redfish_service_validator==3.1.8
-RSV=/tmp/rsv/bin/rf_service_validator scripts/service_validator.sh
+# DMTF validators against the Compose stack (reports in validator-report/, protocol-report/):
+python3 -m venv /tmp/dmtf && /tmp/dmtf/bin/pip install redfish_service_validator==3.1.8 \
+    redfish-protocol-validator==1.3.2
+RSV=/tmp/dmtf/bin/rf_service_validator scripts/service_validator.sh
+RPV=/tmp/dmtf/bin/rf_protocol_validator scripts/protocol_validator.sh
 ```
 
 Layout: `sensord/` (C daemon), `redfishd/` (FastAPI app), `tests/` (integration and
