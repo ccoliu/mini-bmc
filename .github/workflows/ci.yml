@@ -5,12 +5,18 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Times to repeat the integration suite (catches flaky tests)"
+        type: number
+        default: 1
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Per event: a push to main must not cancel the nightly run, which is a dispatch.
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -93,7 +99,12 @@ jobs:
 
       - name: Unit tests
         working-directory: redfishd
-        run: ../.venv/bin/pytest -v
+        run: ../.venv/bin/pytest -v --junitxml=junit/report.xml -o junit_family=xunit1
+
+      # Annotations show on the run's page; the nightly triage reads them back.
+      - name: Annotate failed tests
+        if: failure()
+        run: python scripts/annotate_failures.py --root redfishd redfishd/junit/*.xml
 
   integration:
     name: integration (pytest)
@@ -130,7 +141,17 @@ jobs:
       - name: pytest against ${{ matrix.variant.name }} sensord
         env:
           SENSORD_BIN: ${{ matrix.variant.bin }}
-        run: .venv/bin/pytest -v
+          REPEAT: ${{ inputs.repeat || 1 }}
+        run: |
+          status=0
+          for run in $(seq "$REPEAT"); do
+            .venv/bin/pytest -v --junitxml="junit/run-$run.xml" -o junit_family=xunit1 || status=1
+          done
+          exit "$status"
+
+      - name: Annotate failed tests
+        if: failure()
+        run: python scripts/annotate_failures.py junit/*.xml
 
   docker:
     name: docker compose (smoke test, DMTF validators)

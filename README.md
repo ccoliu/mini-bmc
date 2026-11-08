@@ -132,13 +132,13 @@ values alone), `disconnected` and `noise`. The socket protocol is specified in [
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 385 tests in total, all run in CI.
+Each layer catches a different class of bug. 415 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
 | sensord unit | Unity (C), under ASan + UBSan | 36 | Parser edge cases, buffer bounds, threshold and fault logic, stuck detection without false positives |
 | redfishd unit | pytest + a fake sensord | 272 | Error mapping, auth and sessions (with an injectable clock), query-parameter rules (a route walk, like the auth one), protocol headers, action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
-| Integration | pytest against the real daemon, release and ASan builds | 77 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
+| Integration | pytest against the real daemon, release and ASan builds | 107 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
 | Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted, stuck and powered-off states, and for completed and rolled-back update Tasks |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 9 | Problems that only show up in the shipped images and wiring |
 | Service Validator | DMTF `rf_service_validator` against `docker compose` | 1 run, ~380 property checks | Anything the DMTF CSDL schemas define that our JSON-schema tests miss, plus `$metadata` itself, checked by DMTF's own tool rather than ours |
@@ -146,6 +146,15 @@ Each layer catches a different class of bug. 385 tests in total, all run in CI.
 
 The checks are complementary. For example, the DMTF schema accepts any string for
 `ReadingUnits`, so only a unit test catches `"C"` where Redfish requires UCUM `"Cel"`.
+
+A nightly pipeline runs all of this again with the integration suite repeated five times under
+each daemon build, to catch tests that only fail sometimes. It is a workflow in
+[Coworkify](https://github.com/ccoliu/coworkify), defined in [ops/coworkify](ops/coworkify):
+dispatch CI, wait for it with a sensor that holds no worker, then report to Discord. CI turns
+each failed test into a GitHub annotation, with how many of the runs it failed in. A red night
+is reported from those facts first; a [Codoctopus](https://github.com/ccoliu/Codoctopus) agent
+step on a local model follows with a second, labelled message, so a model that is down cannot
+hide a failure. A green night sends a message too, so silence means the pipeline itself broke.
 
 ## Design decisions
 
@@ -237,6 +246,7 @@ uses to check that Basic auth and logins require HTTPS: it marks those two check
 - [x] `$expand` on the Sensors collection, and the DMTF Redfish Protocol Validator in CI
 - [x] `AccountService` with the predefined roles (read-only)
 - [x] HTTPS with a self-signed certificate made on first start; no Protocol Validator failures
+- [ ] Nightly regression scheduled by Coworkify, with failures triaged by a Codoctopus agent step
 
 ## Development
 

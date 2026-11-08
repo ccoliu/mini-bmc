@@ -15,3 +15,6 @@ protocol-report/
 
 # The Compose stack's self-signed certificate, copied out for clients
 mini-bmc-ca.pem
+
+# pytest JUnit reports for CI annotations
+junit/

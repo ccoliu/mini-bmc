@@ -47,6 +47,7 @@ mini-bmc/
 ├── scripts/              # smoke_test.sh (curl checks), service_validator.sh and
 │                         # protocol_validator.sh (DMTF validators), check_protocol_report.py,
 │                         # sensordctl.sh (raw sensord requests), make_fw_image.py
+├── ops/coworkify/        # nightly.py (workflow definition + installer), steps/ (its Python steps)
 ├── docker-compose.yml
 ├── .github/workflows/ci.yml
 └── CLAUDE.md
@@ -265,6 +266,27 @@ The image SHA-256 gives integrity, not authenticity: no signature check, so any 
 user can build an installable image. One updatable component (the BMC); the "reboot" is a
 timed wait and the self-test result is a flag in the image.
 
+## Nightly regression (Week 4)
+
+`ops/coworkify/nightly.py` holds a Coworkify workflow and installs it over Coworkify's API
+(`--print` shows it, `--run-now` starts one; `COWORKIFY_URL`, `COWORKIFY_USERNAME`,
+`COWORKIFY_PASSWORD`). Each `python` step is a file in `steps/`, inlined at install time, so
+`tests/test_nightly_workflow.py` can run it. Cron `0 2 * * *` (Asia/Taipei). Flow: remember the
+time -> dispatch `ci.yml` with `repeat=5` -> check for 204 (`http_request` does not fail on an
+error status, so an expired token gets its own notify) -> `wait_for` the run created since then
+(the dispatch API returns no run id) -> green: notify; red: list jobs -> `digest` -> notify red
+-> `agent_step` -> notify analysis. Red facts never depend on the model. Green also notifies, so
+silence means the pipeline broke (a `wait_for` timeout notifies nobody; it fails the run in
+Coworkify). Needs the Coworkify connection `github`: a fine-grained token, Actions read/write on
+this repo; polling must send it (30 s polling exceeds the anonymous 60/hour). `digest` reads
+annotations itself, anonymously, rather than with `for_each`: Coworkify's cascade follows
+`depends_on` only, so a reduce under a branch not taken stays pending forever.
+
+CI side: `workflow_dispatch` input `repeat` loops the integration suite; each run writes
+`junit/run-N.xml`. On failure `scripts/annotate_failures.py` prints `::error` annotations, with
+"failed in K of N runs" when repeated (max 10 per step, GitHub's limit). The concurrency group
+includes the event, so a push cannot cancel the nightly dispatch.
+
 ## Conventions
 
 - Develop and test on Linux (WSL2 or a container), not native Windows.
@@ -286,7 +308,7 @@ timed wait and the self-test result is a flag in the image.
 - [x] **Week 1** — `sensord`: C daemon, socket protocol above, Unity tests, Makefile, coverage, cppcheck, sanitizers, CI
 - [x] **Week 2** — `redfishd` MVP endpoints, pytest suite, schema validation, Docker Compose, CI → **MVP done**
 - [x] **Week 3** — firmware update + rollback (UpdateService, TaskService, A/B slots), fault-injection tests (stuck detection, issue #4), DMTF Redfish Service Validator in CI
-- [ ] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step
+- [ ] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step (built and tested against fakes; check off after the first real run)
 
 ## References
 
