@@ -10,11 +10,7 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check_protocol_report.py"
 HEADER = "Assertion\tMethod\tStatus code\tURI\tResult\tMessage\tRequirement"
-KNOWN = [
-    "SEC_BASIC_AUTH_OVER_HTTPS",
-    "SEC_SESSION_CREATE_HTTPS_ONLY",
-    "SEC_PRIV_SUPPORT_PREDEFINED_ROLES",
-]
+KNOWN = ["SEC_BASIC_AUTH_OVER_HTTPS", "SEC_SESSION_CREATE_HTTPS_ONLY"]
 
 
 def row(assertion: str, result: str, uri: str = "/redfish/v1/") -> str:
@@ -31,7 +27,7 @@ def check(tmp_path: Path, rows: list[str]) -> subprocess.CompletedProcess[str]:
 
 def test_exactly_the_known_failures_pass(tmp_path: Path) -> None:
     rows = [row(a, "FAIL") for a in KNOWN] + [row("RESP_HEADERS_CACHE_CONTROL", "PASS")]
-    rows.append(row("SEC_PRIV_SUPPORT_PREDEFINED_ROLES", "FAIL", uri=""))  # repeats are fine
+    rows.append(row("SEC_BASIC_AUTH_OVER_HTTPS", "FAIL", uri="/redfish/v1/x"))  # repeats are fine
     result = check(tmp_path, rows)
     assert result.returncode == 0, result.stdout
     assert "matches the known failures" in result.stdout

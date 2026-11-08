@@ -145,6 +145,11 @@ def test_crawl_covers_every_resource_type(api: TestClient) -> None:
         "#SoftwareInventory",
         "#TaskService",
         "#TaskCollection",  # empty here; see test_firmware_update_tasks_conform
+        "#AccountService",
+        "#ManagerAccountCollection",
+        "#ManagerAccount",
+        "#RoleCollection",
+        "#Role",
     }
 
 

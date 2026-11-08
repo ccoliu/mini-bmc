@@ -150,6 +150,13 @@ sensor), `power.py` (simulated host power), `sessions.py` + `auth.py`, `tasks.py
 - `Systems/1` with `ComputerSystem.Reset` (7 ResetTypes, advertised via AllowableValues)
 - `SessionService`: login returns `X-Auth-Token` + `Location`; DELETE logs out; 1800 s idle
   timeout. HTTP Basic is accepted too. A sent token is never silently replaced by Basic.
+- `AccountService` (`routers/account_service.py`), read-only: `Accounts/1` is the env account
+  (`RoleId` Administrator, `Password` null, `Links.Role`), `Roles/{Administrator,Operator,ReadOnly}`
+  with DSP0266's exact `AssignedPrivileges` (the Protocol Validator compares the sets). Writes are
+  405 (GET-only routes). The account response comes from `protocol.with_etag()`: a weak ETag,
+  SHA-256 of the canonical JSON before `@odata.etag` is added, in both the header and
+  `@odata.etag` (DSP0266 requires ETags on ManagerAccount). Sensors get no ETag: readings change
+  every tick. Roles are descriptive only; nothing is enforced with one Administrator account.
 - Query parameters (issue #5, `query.py`): an app-wide dependency ignores unknown params without
   `$`, answers any other `$` param with 501 `QueryParameterUnsupported`, and `$expand` on a route
   outside `EXPANDABLE` (only the Sensors collection) with 400 `QueryNotSupportedOnResource`.
@@ -227,14 +234,15 @@ artifact. Baseline: 0 WARN, 0 FAIL.
 `/tmp/dmtf`, after the Service Validator) and ignores its exit code: it fails on anything,
 including what this service accepts. `scripts/check_protocol_report.py` compares the TSV report
 with `KNOWN_FAILURES` (assertion ID -> reason): currently only no TLS
-(`SEC_BASIC_AUTH_OVER_HTTPS`, `SEC_SESSION_CREATE_HTTPS_ONLY`) and no roles
-(`SEC_PRIV_SUPPORT_PREDEFINED_ROLES`). A FAIL or WARN outside the list fails CI, and so does a
+(`SEC_BASIC_AUTH_OVER_HTTPS`, `SEC_SESSION_CREATE_HTTPS_ONLY`); the roles entry was removed when
+AccountService landed (the check flagged it as passing). A FAIL or WARN outside the list fails CI, and so does a
 listed one that passes (remove it). Reports are uploaded with the Service Validator's as the
 `dmtf-validator-reports` artifact. Its first run (2026-11) found 7 real gaps, all fixed.
 
 ### Known limitations (by design, for now)
 
-Plain HTTP (no TLS); a single account from env vars; no lockout or rate limiting on login;
+Plain HTTP (no TLS); a single account from env vars, published read-only in AccountService with
+the predefined roles (not enforced); no lockout or rate limiting on login;
 sessions and Tasks live in memory and vanish on restart (installed firmware persists).
 The image SHA-256 gives integrity, not authenticity: no signature check, so any logged-in
 user can build an installable image. One updatable component (the BMC); the "reboot" is a

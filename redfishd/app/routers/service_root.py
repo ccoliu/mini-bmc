@@ -19,6 +19,7 @@ TOP_LEVEL = {
     "SessionService": f"{ROOT}/SessionService",
     "Tasks": f"{ROOT}/TaskService",
     "UpdateService": f"{ROOT}/UpdateService",
+    "AccountService": f"{ROOT}/AccountService",
 }
 
 METADATA = metadata_xml()  # built from TYPES, so it cannot drift from what is served

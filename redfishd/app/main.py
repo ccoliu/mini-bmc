@@ -16,7 +16,15 @@ from .config import Settings
 from .firmware_store import FirmwareStore
 from .firmware_update import FirmwareUpdater
 from .power import PowerController
-from .routers import chassis, service_root, session_service, systems, task_service, update_service
+from .routers import (
+    account_service,
+    chassis,
+    service_root,
+    session_service,
+    systems,
+    task_service,
+    update_service,
+)
 from .sensord_client import SensordClient
 from .sessions import SessionStore
 from .tasks import TaskManager
@@ -58,5 +66,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(session_service.router)
     app.include_router(task_service.router)
     app.include_router(update_service.router)
+    app.include_router(account_service.router)
     protocol.install(app)  # last: it reads the finished route table
     return app

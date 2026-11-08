@@ -27,12 +27,17 @@ URL = f"https://github.com/DMTF/Redfish-Publications/archive/refs/tags/{TAG}.tar
 SHA256 = "6db17d31a91582b50a32e98f2d26fa8495e70b65bc5c4e05429f71085de2cf6c"
 
 FILES = [
+    "AccountService.json",
+    "AccountService.v1_19_0.json",
     "Chassis.json",
     "Chassis.v1_29_0.json",
     "ChassisCollection.json",
     "ComputerSystem.json",
     "ComputerSystem.v1_29_0.json",
     "ComputerSystemCollection.json",
+    "ManagerAccount.json",
+    "ManagerAccount.v1_14_2.json",
+    "ManagerAccountCollection.json",
     "Message.json",
     # Message.json is an anyOf over one file per minor version; all are needed.
     "Message.v1_0_12.json",
@@ -41,7 +46,11 @@ FILES = [
     "Message.v1_3_1.json",
     "Message.v1_4_0.json",
     "PhysicalContext.json",
+    "Privileges.json",
     "Resource.json",
+    "Role.json",
+    "Role.v1_3_3.json",
+    "RoleCollection.json",
     "Sensor.json",
     "Sensor.v1_14_0.json",
     "SensorCollection.json",

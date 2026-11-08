@@ -112,6 +112,7 @@ curl -s -H "$AUTH" $BASE/UpdateService/FirmwareInventory/BMC | jq .Version  # "1
 | `Chassis/1`, `Chassis/1/Sensors/{id}` | 3 temperature sensors, 2 fans, 1 PSU. Uses the current `Sensor` model, not the deprecated `Thermal` resource. A stuck sensor is `Warning` with a `Status.Conditions` entry. Health rolls up to the chassis. `Sensors?$expand=.` returns every reading in one request, from one daemon read. |
 | `Systems/1` + `ComputerSystem.Reset` | Simulated host power. 7 reset types, advertised through `@Redfish.AllowableValues`. |
 | `SessionService` | Login (`X-Auth-Token` + `Location`), logout, 30-minute idle timeout. HTTP Basic is accepted too. |
+| `AccountService` | The one account (from the environment) and DSP0266's predefined roles `Administrator`, `Operator` and `ReadOnly` with their exact privileges. Read-only: every write is `405`. The account carries an `ETag`, the same in the header and in `@odata.etag`, derived from its content. |
 | `UpdateService` | Multipart push update (`MultipartHttpPushUri`). The image is verified before any Task exists: a bad one gets `400` with an `Update` registry message saying why, an oversized one `413`, a second concurrent update `409`. |
 | `UpdateService/FirmwareInventory` | `BMC` (the running firmware) and `BMC_Backup` (the other A/B slot: `Absent`, `Updating` during a trial boot, or `StandbySpare` holding the previous version). |
 | `TaskService/Tasks/{id}` | Long-running operations. The task monitor answers `202` while the task runs and `200` when it is done. Messages come from the DMTF `TaskEvent` and `Update` registries. The 32 most recent tasks are kept. |
@@ -125,17 +126,17 @@ values alone), `disconnected` and `noise`. The socket protocol is specified in [
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 367 tests in total, all run in CI.
+Each layer catches a different class of bug. 383 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
 | sensord unit | Unity (C), under ASan + UBSan | 36 | Parser edge cases, buffer bounds, threshold and fault logic, stuck detection without false positives |
-| redfishd unit | pytest + a fake sensord | 256 | Error mapping, auth and sessions (with an injectable clock), query-parameter rules (a route walk, like the auth one), protocol headers, action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
+| redfishd unit | pytest + a fake sensord | 272 | Error mapping, auth and sessions (with an injectable clock), query-parameter rules (a route walk, like the auth one), protocol headers, action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
 | Integration | pytest against the real daemon, release and ASan builds | 75 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
 | Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted, stuck and powered-off states, and for completed and rolled-back update Tasks |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 9 | Problems that only show up in the shipped images and wiring |
-| Service Validator | DMTF `rf_service_validator` against `docker compose` | 1 run, ~300 property checks | Anything the DMTF CSDL schemas define that our JSON-schema tests miss, plus `$metadata` itself, checked by DMTF's own tool rather than ours |
-| Protocol Validator | DMTF `rf_protocol_validator` against `docker compose` | 1 run, ~180 assertions | HTTP behaviour the body checks cannot see: missing headers, wrong status codes, session rules. Its first run found 7 such bugs. It is held to a short list of known failures, each with its reason (no TLS, no roles); a new failure fails CI, and so does a known one that starts passing, so the list cannot go stale |
+| Service Validator | DMTF `rf_service_validator` against `docker compose` | 1 run, ~380 property checks | Anything the DMTF CSDL schemas define that our JSON-schema tests miss, plus `$metadata` itself, checked by DMTF's own tool rather than ours |
+| Protocol Validator | DMTF `rf_protocol_validator` against `docker compose` | 1 run, ~240 assertions | HTTP behaviour the body checks cannot see: missing headers, wrong status codes, session rules, account ETags. Its first run found 7 such bugs. It is held to a list of known failures, each with its reason (now only: no TLS); a new failure fails CI, and so does a known one that starts passing, so the list cannot go stale. Adding the roles proved that rule: the check demanded their entry be removed |
 
 The checks are complementary. For example, the DMTF schema accepts any string for
 `ReadingUnits`, so only a unit test catches `"C"` where Redfish requires UCUM `"Cel"`.
@@ -210,13 +211,14 @@ the fix.
 
 These are deliberate simplifications for a simulator, not oversights. There is no TLS (plain
 HTTP, loopback only in Compose), a single account comes from environment variables, and there
-is no lockout or rate limiting on login. Sessions and Tasks live in memory and do not survive a
+is no lockout or rate limiting on login. The roles are published but not enforced: with a
+single Administrator account, no request could be refused for lack of a privilege. Sessions and Tasks live in memory and do not survive a
 restart (the installed firmware does). The SHA-256 in an image's manifest proves integrity
 (the upload was not damaged), not authenticity: anyone who can log in can build a valid image.
 A real BMC would verify a signature against a key in its root of trust. There is one updatable
 component, the BMC itself, and the "reboot" is a timed wait plus a self-test flag in the image.
-The DMTF Protocol Validator reports the missing TLS and roles as its only failures; they are
-listed, with reasons, in `scripts/check_protocol_report.py`.
+The DMTF Protocol Validator reports the missing TLS as its only failure; it is listed, with
+its reason, in `scripts/check_protocol_report.py`.
 
 ## Roadmap
 
@@ -226,6 +228,8 @@ listed, with reasons, in `scripts/check_protocol_report.py`.
       automatic rollback, Redfish Tasks
 - [x] Serve `$metadata` and run the DMTF Redfish Service Validator in CI
 - [x] `$expand` on the Sensors collection, and the DMTF Redfish Protocol Validator in CI
+- [x] `AccountService` with the predefined roles (read-only)
+- [ ] TLS, the Protocol Validator's last known failure
 
 ## Development
 

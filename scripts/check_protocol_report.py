@@ -16,7 +16,6 @@ from pathlib import Path
 KNOWN_FAILURES = {
     "SEC_BASIC_AUTH_OVER_HTTPS": "plain HTTP: the simulator has no TLS",
     "SEC_SESSION_CREATE_HTTPS_ONLY": "plain HTTP: the simulator has no TLS",
-    "SEC_PRIV_SUPPORT_PREDEFINED_ROLES": "no AccountService or Roles: one account from the env",
 }
 
 

@@ -30,6 +30,11 @@ TYPES = {
     "UpdateService": "#UpdateService.v1_17_1.UpdateService",
     "SoftwareInventoryCollection": "#SoftwareInventoryCollection.SoftwareInventoryCollection",
     "SoftwareInventory": "#SoftwareInventory.v1_15_0.SoftwareInventory",
+    "AccountService": "#AccountService.v1_19_0.AccountService",
+    "ManagerAccountCollection": "#ManagerAccountCollection.ManagerAccountCollection",
+    "ManagerAccount": "#ManagerAccount.v1_14_2.ManagerAccount",
+    "RoleCollection": "#RoleCollection.RoleCollection",
+    "Role": "#Role.v1_3_3.Role",
 }
 
 

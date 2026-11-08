@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -44,6 +46,14 @@ class RedfishJSONResponse(JSONResponse):
         super().__init__(content, status_code, headers, media_type, background)
         if isinstance(content, dict) and isinstance(content.get("@odata.type"), str):
             self.headers["Link"] = f"<{schema_uri(content['@odata.type'])}>; rel=describedby"
+
+
+def with_etag(body: dict[str, Any]) -> RedfishJSONResponse:
+    """A response whose ETag header and @odata.etag property carry the same weak ETag, a
+    hash of the body: unchanged content keeps the same ETag (DSP0266, RFC 7232)."""
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    etag = f'W/"{hashlib.sha256(canonical).hexdigest()[:16]}"'
+    return RedfishJSONResponse({**body, "@odata.etag": etag}, headers={"ETag": etag})
 
 
 def allowed_methods(app: FastAPI) -> list[tuple[re.Pattern[str], str]]:
