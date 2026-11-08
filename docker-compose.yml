@@ -21,8 +21,9 @@ services:
     volumes:
       - sock:/run/mini-bmc
       - firmware:/var/lib/redfishd/firmware   # A/B slots survive container restarts
+      - tls:/var/lib/redfishd/tls             # the self-signed certificate, made on first start
     ports:
-      # Loopback only: plain HTTP with demo credentials. REDFISH_PORT picks the host port.
+      # Loopback only: HTTPS, demo credentials. REDFISH_PORT picks the host port.
       - "127.0.0.1:${REDFISH_PORT:-8000}:8000"
     depends_on:
       sensord:
@@ -35,3 +36,4 @@ services:
 volumes:
   sock: {}
   firmware: {}
+  tls: {}

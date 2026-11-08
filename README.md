@@ -29,13 +29,16 @@ flowchart LR
   crawls the API from the service root and hard-codes no URLs, so a dangling link also fails.
   On top of that, CI runs DMTF's own conformance tools against the shipped containers: the
   Service Validator on the response bodies, with faulted sensors and finished update Tasks in
-  place, and the Protocol Validator on HTTP behaviour (headers, status codes, sessions).
+  place, and the Protocol Validator on HTTP behaviour (headers, status codes, sessions, TLS),
+  which reports no failures.
 - **Fault injection end to end** – overheat a CPU sensor in the C daemon and the Redfish
   chassis reports `HealthRollup: Critical`. Freeze a sensor and, after ten unchanged readings,
   the daemon flags it as stuck and Redfish reports `Warning` with a DMTF `SensorEvent`
   condition. Stop the daemon and the API answers `503` with `Retry-After`, then recovers on its
   own when the daemon returns.
-- **Security basics done deliberately** – random session tokens that are separate from public
+- **Security basics done deliberately** – HTTPS only: like a real BMC on its first boot, the
+  container creates a self-signed certificate once and keeps it, and every client in CI
+  verifies against it rather than skipping the check. Random session tokens that are separate from public
   session IDs, constant-time credential checks, and a test that walks every route and fails if
   any endpoint outside a small allowlist answers without credentials. Containers run as
   non-root on a read-only filesystem with all capabilities dropped, and `sensord` has no
@@ -55,14 +58,17 @@ Requires Docker with Compose v2.
 
 ```sh
 docker compose up --build --wait        # REDFISH_PORT=18000 if port 8000 is taken
-scripts/smoke_test.sh                   # 9 end-to-end checks, including a firmware update
+# HTTPS only, with a certificate the BMC made itself on first start: copy it out and trust it
+docker compose cp redfishd:/var/lib/redfishd/tls/cert.pem mini-bmc-ca.pem
+REDFISH_CA=mini-bmc-ca.pem scripts/smoke_test.sh   # 9 end-to-end checks, incl. a firmware update
 ```
 
 Then explore. The demo credentials are `admin` / `admin`; set `REDFISH_PASSWORD` to change
 them. The port is bound to `127.0.0.1` only.
 
 ```sh
-BASE=http://127.0.0.1:8000/redfish/v1
+export CURL_CA_BUNDLE=$PWD/mini-bmc-ca.pem   # curl verifies the BMC against its certificate
+BASE=https://127.0.0.1:8000/redfish/v1
 
 curl -s $BASE/ | jq                                   # service root: the only public resource
 curl -s -o /dev/null -w '%{http_code}\n' $BASE/Chassis/1          # 401 without credentials
@@ -126,17 +132,17 @@ values alone), `disconnected` and `noise`. The socket protocol is specified in [
 
 ## Testing strategy
 
-Each layer catches a different class of bug. 383 tests in total, all run in CI.
+Each layer catches a different class of bug. 385 tests in total, all run in CI.
 
 | Layer | Tool | Count | Catches |
 |---|---|---|---|
 | sensord unit | Unity (C), under ASan + UBSan | 36 | Parser edge cases, buffer bounds, threshold and fault logic, stuck detection without false positives |
 | redfishd unit | pytest + a fake sensord | 272 | Error mapping, auth and sessions (with an injectable clock), query-parameter rules (a route walk, like the auth one), protocol headers, action validation, image parsing, crash recovery of the A/B store, readers racing an update thread, task lifecycle |
-| Integration | pytest against the real daemon, release and ASan builds | 75 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
+| Integration | pytest against the real daemon, release and ASan builds | 77 | Protocol over a real socket, malformed input, client limits, signals, stale sockets, every fault mode observed through Redfish and cleared, sensors staying readable during a firmware update |
 | Conformance | DMTF JSON schemas, part of the integration suite | (17) | Wrong property names, invalid enum values, broken links, in healthy, faulted, stuck and powered-off states, and for completed and rolled-back update Tasks |
 | Smoke | `scripts/smoke_test.sh` against `docker compose` | 9 | Problems that only show up in the shipped images and wiring |
 | Service Validator | DMTF `rf_service_validator` against `docker compose` | 1 run, ~380 property checks | Anything the DMTF CSDL schemas define that our JSON-schema tests miss, plus `$metadata` itself, checked by DMTF's own tool rather than ours |
-| Protocol Validator | DMTF `rf_protocol_validator` against `docker compose` | 1 run, ~240 assertions | HTTP behaviour the body checks cannot see: missing headers, wrong status codes, session rules, account ETags. Its first run found 7 such bugs. It is held to a list of known failures, each with its reason (now only: no TLS); a new failure fails CI, and so does a known one that starts passing, so the list cannot go stale. Adding the roles proved that rule: the check demanded their entry be removed |
+| Protocol Validator | DMTF `rf_protocol_validator` against `docker compose` | 1 run, ~240 assertions | HTTP behaviour the body checks cannot see: missing headers, wrong status codes, session rules, account ETags. Its first run found 7 such bugs. It is held to a list of known failures, each with its reason; a new failure fails CI, and so does a known one that starts passing, so the list cannot go stale. Adding the roles, then TLS, proved that rule: each time the check demanded the entry be removed. The list is now empty |
 
 The checks are complementary. For example, the DMTF schema accepts any string for
 `ReadingUnits`, so only a unit test catches `"C"` where Redfish requires UCUM `"Cel"`.
@@ -209,16 +215,17 @@ the fix.
 
 ## Known limitations
 
-These are deliberate simplifications for a simulator, not oversights. There is no TLS (plain
-HTTP, loopback only in Compose), a single account comes from environment variables, and there
-is no lockout or rate limiting on login. The roles are published but not enforced: with a
+These are deliberate simplifications for a simulator, not oversights. The TLS certificate is
+self-signed and there is no `CertificateService` to replace it with one from a real CA. A
+single account comes from environment variables, and there is no lockout or rate limiting on
+login. The roles are published but not enforced: with a
 single Administrator account, no request could be refused for lack of a privilege. Sessions and Tasks live in memory and do not survive a
 restart (the installed firmware does). The SHA-256 in an image's manifest proves integrity
 (the upload was not damaged), not authenticity: anyone who can log in can build a valid image.
 A real BMC would verify a signature against a key in its root of trust. There is one updatable
 component, the BMC itself, and the "reboot" is a timed wait plus a self-test flag in the image.
-The DMTF Protocol Validator reports the missing TLS as its only failure; it is listed, with
-its reason, in `scripts/check_protocol_report.py`.
+Plain HTTP is not served at all, so the Protocol Validator cannot send it the HTTP request it
+uses to check that Basic auth and logins require HTTPS: it marks those two checks not tested.
 
 ## Roadmap
 
@@ -229,7 +236,7 @@ its reason, in `scripts/check_protocol_report.py`.
 - [x] Serve `$metadata` and run the DMTF Redfish Service Validator in CI
 - [x] `$expand` on the Sensors collection, and the DMTF Redfish Protocol Validator in CI
 - [x] `AccountService` with the predefined roles (read-only)
-- [ ] TLS, the Protocol Validator's last known failure
+- [x] HTTPS with a self-signed certificate made on first start; no Protocol Validator failures
 
 ## Development
 
@@ -244,6 +251,7 @@ python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"
 # DMTF validators against the Compose stack (reports in validator-report/, protocol-report/):
 python3 -m venv /tmp/dmtf && /tmp/dmtf/bin/pip install redfish_service_validator==3.1.8 \
     redfish-protocol-validator==1.3.2
+export REDFISH_CA=mini-bmc-ca.pem     # copied out of the stack, as in Quick start
 RSV=/tmp/dmtf/bin/rf_service_validator scripts/service_validator.sh
 RPV=/tmp/dmtf/bin/rf_protocol_validator scripts/protocol_validator.sh
 ```

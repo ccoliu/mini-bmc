@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Smoke test against a running stack (docker compose up --build --wait).
 #   REDFISH_PORT (or BASE_URL), REDFISH_USERNAME, REDFISH_PASSWORD override the defaults.
+#   REDFISH_CA: the stack's self-signed certificate, which curl then verifies against
+#   (docker compose cp redfishd:/var/lib/redfishd/tls/cert.pem mini-bmc-ca.pem).
 set -euo pipefail
 
-BASE_URL=${BASE_URL:-http://127.0.0.1:${REDFISH_PORT:-8000}}
+BASE_URL=${BASE_URL:-https://127.0.0.1:${REDFISH_PORT:-8000}}
+CURL_TLS=()
+[[ -n ${REDFISH_CA:-} ]] && CURL_TLS=(--cacert "$REDFISH_CA")
+curl() { command curl "${CURL_TLS[@]}" "$@"; }
 USER_PASS="${REDFISH_USERNAME:-admin}:${REDFISH_PASSWORD:-admin}"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 failures=0
@@ -24,7 +29,7 @@ check() {  # check <description> <expected status> <curl args...>
 }
 
 no_response_hint() {
-    [[ $1 == 000 ]] && echo " (no response: is the stack running?)"
+    [[ $1 == 000 ]] && echo " (no response: is the stack running, and is REDFISH_CA set?)"
     return 0
 }
 

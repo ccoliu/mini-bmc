@@ -12,11 +12,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Assertion ID -> why this service does not meet it (README, "Known limitations").
-KNOWN_FAILURES = {
-    "SEC_BASIC_AUTH_OVER_HTTPS": "plain HTTP: the simulator has no TLS",
-    "SEC_SESSION_CREATE_HTTPS_ONLY": "plain HTTP: the simulator has no TLS",
-}
+# Assertion ID -> why this service does not meet it (README, "Known limitations"). Empty
+# since TLS landed; the mechanism stays for the next gap that is accepted on purpose.
+KNOWN_FAILURES: dict[str, str] = {}
 
 
 def failures(report: Path) -> dict[str, list[str]]:
@@ -31,15 +29,25 @@ def failures(report: Path) -> dict[str, list[str]]:
     return found
 
 
-def main(argv: list[str]) -> int:
+def compare(
+    found: dict[str, list[str]], known: dict[str, str]
+) -> tuple[list[str], list[str], list[str]]:
+    """(new failures, known ones still failing, known ones that pass now), each sorted."""
+    return (
+        sorted(found.keys() - known.keys()),
+        sorted(found.keys() & known.keys()),
+        sorted(known.keys() - found.keys()),
+    )
+
+
+def main(argv: list[str], known: dict[str, str] = KNOWN_FAILURES) -> int:
     if len(argv) != 2:
         print(f"usage: {argv[0]} REPORT.tsv", file=sys.stderr)
         return 2
     found = failures(Path(argv[1]))
-    new = sorted(found.keys() - KNOWN_FAILURES.keys())
-    fixed = sorted(KNOWN_FAILURES.keys() - found.keys())
-    for assertion in sorted(found.keys() & KNOWN_FAILURES.keys()):
-        print(f"known {assertion}: {KNOWN_FAILURES[assertion]}")
+    new, still, fixed = compare(found, known)
+    for assertion in still:
+        print(f"known {assertion}: {known[assertion]}")
     for assertion in new:
         print(f"FAIL  {assertion}")
         for detail in found[assertion]:

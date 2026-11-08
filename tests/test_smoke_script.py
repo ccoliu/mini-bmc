@@ -70,7 +70,7 @@ def unauthorized_server() -> Iterator[str]:
 def test_stack_down_reports_every_check_as_failed(closed_port: int) -> None:
     result = run_smoke(f"http://127.0.0.1:{closed_port}")
     assert_reports_failures(result, CHECKS)
-    assert "is the stack running?" in result.stdout
+    assert "is the stack running, and is REDFISH_CA set?" in result.stdout
 
 
 def test_error_body_without_reading_is_a_fail_line(unauthorized_server: str) -> None:

@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # DMTF Redfish Service Validator against a running stack (docker compose up --build --wait).
 #   RSV (validator command, default rf_service_validator), REPORT_DIR (default
-#   validator-report), REDFISH_PORT (or BASE_URL), REDFISH_USERNAME, REDFISH_PASSWORD.
+#   validator-report), REDFISH_PORT (or BASE_URL), REDFISH_USERNAME, REDFISH_PASSWORD,
+#   REDFISH_CA (the stack's certificate, for this script's own curl requests; the validator
+#   itself does not verify certificates).
 # Install the validator with:  pip install redfish_service_validator==3.1.8
 set -euo pipefail
 
-BASE_URL=${BASE_URL:-http://127.0.0.1:${REDFISH_PORT:-8000}}
+BASE_URL=${BASE_URL:-https://127.0.0.1:${REDFISH_PORT:-8000}}
+CURL_TLS=()
+[[ -n ${REDFISH_CA:-} ]] && CURL_TLS=(--cacert "$REDFISH_CA")
+curl() { command curl "${CURL_TLS[@]}" "$@"; }
 USERNAME=${REDFISH_USERNAME:-admin}
 PASSWORD=${REDFISH_PASSWORD:-admin}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

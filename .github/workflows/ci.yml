@@ -135,6 +135,9 @@ jobs:
   docker:
     name: docker compose (smoke test, DMTF validators)
     runs-on: ubuntu-24.04
+    env:
+      # The stack's self-signed certificate, copied out below: every client verifies against it.
+      REDFISH_CA: mini-bmc-ca.pem
     steps:
       - uses: actions/checkout@v4
 
@@ -144,6 +147,9 @@ jobs:
 
       - name: Build and start the stack
         run: docker compose up --build --wait --wait-timeout 120
+
+      - name: Fetch the TLS certificate
+        run: docker compose cp redfishd:/var/lib/redfishd/tls/cert.pem "$REDFISH_CA"
 
       - name: Smoke test
         run: scripts/smoke_test.sh
@@ -161,7 +167,7 @@ jobs:
           RSV: /tmp/dmtf/bin/rf_service_validator
         run: scripts/service_validator.sh
 
-      # HTTP behaviour (headers, status codes, sessions), against a list of known failures.
+      # HTTP behaviour (headers, status codes, sessions, TLS), against the known failures.
       - name: DMTF Redfish Protocol Validator
         if: success() || failure()
         env:

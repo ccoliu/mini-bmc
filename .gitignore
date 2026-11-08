@@ -12,3 +12,6 @@ __pycache__/
 # DMTF validator reports (scripts/service_validator.sh, scripts/protocol_validator.sh)
 validator-report/
 protocol-report/
+
+# The Compose stack's self-signed certificate, copied out for clients
+mini-bmc-ca.pem

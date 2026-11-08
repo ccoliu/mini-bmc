@@ -36,6 +36,7 @@ mini-bmc/
 │   ├── Makefile
 │   └── Dockerfile        # multi-stage: gcc build stage, slim runtime
 ├── redfishd/
+│   ├── start.sh          # image CMD: makes the TLS certificate on first start, runs uvicorn
 │   ├── app/              # FastAPI application (import name: app)
 │   │   └── routers/      # one module per Redfish resource family
 │   ├── tests/            # unit tests (FakeSensord, no daemon needed)
@@ -117,7 +118,9 @@ python3 -m venv .venv && .venv/bin/pip install -e "./redfishd[dev]"   # one venv
 .venv/bin/pytest                           # integration + DMTF conformance (needs make -C sensord)
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/pyrefly check && (cd redfishd && ../.venv/bin/pyrefly check)
-docker compose up --build --wait && scripts/smoke_test.sh              # REDFISH_PORT picks the host port
+docker compose up --build --wait                                       # REDFISH_PORT picks the host port
+docker compose cp redfishd:/var/lib/redfishd/tls/cert.pem mini-bmc-ca.pem && export REDFISH_CA=mini-bmc-ca.pem
+scripts/smoke_test.sh                                                  # HTTPS, verified against REDFISH_CA
 PYTHONPATH=redfishd python3 scripts/make_fw_image.py 1.1.0 -o fw.bin   # demo image (--fail-selftest, --corrupt)
 RSV=/tmp/dmtf/bin/rf_service_validator scripts/service_validator.sh    # DMTF Service Validator (stack running)
 RPV=/tmp/dmtf/bin/rf_protocol_validator scripts/protocol_validator.sh  # DMTF Protocol Validator (stack running)
@@ -233,15 +236,29 @@ artifact. Baseline: 0 WARN, 0 FAIL.
 `scripts/protocol_validator.sh` runs `redfish-protocol-validator==1.3.2` (same CI venv
 `/tmp/dmtf`, after the Service Validator) and ignores its exit code: it fails on anything,
 including what this service accepts. `scripts/check_protocol_report.py` compares the TSV report
-with `KNOWN_FAILURES` (assertion ID -> reason): currently only no TLS
-(`SEC_BASIC_AUTH_OVER_HTTPS`, `SEC_SESSION_CREATE_HTTPS_ONLY`); the roles entry was removed when
-AccountService landed (the check flagged it as passing). A FAIL or WARN outside the list fails CI, and so does a
+with `KNOWN_FAILURES` (assertion ID -> reason): empty now. The roles entry went when
+AccountService landed and the two TLS entries when HTTPS did (each time the check flagged them as
+passing); the mechanism stays for the next accepted gap, tested with a sample list. A FAIL or WARN outside the list fails CI, and so does a
 listed one that passes (remove it). Reports are uploaded with the Service Validator's as the
 `dmtf-validator-reports` artifact. Its first run (2026-11) found 7 real gaps, all fixed.
 
+### TLS
+
+HTTPS only, on the one port (8000 in the container). `redfishd/start.sh` is the image's CMD: on
+first start it makes a self-signed EC P-256 certificate (SAN `localhost`, `127.0.0.1`, 825 days)
+in the `tls` named volume (`/var/lib/redfishd/tls`, key 0600, cert written last so its presence
+means both are complete), then execs uvicorn with `--ssl-keyfile/--ssl-certfile`. It survives
+restarts. The HEALTHCHECK verifies against that cert. Clients copy it out with
+`docker compose cp redfishd:/var/lib/redfishd/tls/cert.pem mini-bmc-ca.pem` and verify against
+it, never `-k`: the scripts take `REDFISH_CA` (curl `--cacert`, Protocol Validator
+`--ca-bundle`); the Service Validator itself never verifies certificates (hard-coded in its
+client). CI sets `REDFISH_CA` for the whole docker job. No HTTP listener, so the Protocol
+Validator's HTTP probes on the same port fail to connect and the two HTTPS-only checks are
+NOT_TESTED. Python code is unchanged; TestClient tests do not use TLS.
+
 ### Known limitations (by design, for now)
 
-Plain HTTP (no TLS); a single account from env vars, published read-only in AccountService with
+Self-signed certificate, no CertificateService to replace it; a single account from env vars, published read-only in AccountService with
 the predefined roles (not enforced); no lockout or rate limiting on login;
 sessions and Tasks live in memory and vanish on restart (installed firmware persists).
 The image SHA-256 gives integrity, not authenticity: no signature check, so any logged-in
