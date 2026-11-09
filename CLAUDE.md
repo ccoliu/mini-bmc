@@ -308,7 +308,7 @@ includes the event, so a push cannot cancel the nightly dispatch.
 - [x] **Week 1** — `sensord`: C daemon, socket protocol above, Unity tests, Makefile, coverage, cppcheck, sanitizers, CI
 - [x] **Week 2** — `redfishd` MVP endpoints, pytest suite, schema validation, Docker Compose, CI → **MVP done**
 - [x] **Week 3** — firmware update + rollback (UpdateService, TaskService, A/B slots), fault-injection tests (stuck detection, issue #4), DMTF Redfish Service Validator in CI
-- [ ] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step (built and tested against fakes; check off after the first real run)
+- [x] **Week 4 (stretch)** — nightly regression run scheduled by Coworkify; failed-log triage via a Codoctopus agent step (live: green run and refused dispatch; the red path with the model has only run against fake GitHub and model)
 
 ## References
 

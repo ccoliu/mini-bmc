@@ -246,7 +246,7 @@ uses to check that Basic auth and logins require HTTPS: it marks those two check
 - [x] `$expand` on the Sensors collection, and the DMTF Redfish Protocol Validator in CI
 - [x] `AccountService` with the predefined roles (read-only)
 - [x] HTTPS with a self-signed certificate made on first start; no Protocol Validator failures
-- [ ] Nightly regression scheduled by Coworkify, with failures triaged by a Codoctopus agent step
+- [x] Nightly regression scheduled by Coworkify, with failures triaged by a Codoctopus agent step
 
 ## Development
 
